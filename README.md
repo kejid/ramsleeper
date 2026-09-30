@@ -42,7 +42,7 @@ All screenshots use demo data (`RAMSLEEPER_DEMO=1`), not real sessions.
 RAM Sleeper needs [Node.js](https://nodejs.org) 18 or newer on `PATH`. It has no npm dependencies.
 
 ```
-claude plugin marketplace add <owner>/ramsleeper
+claude plugin marketplace add kejid/ramsleeper
 claude plugin install ramsleeper@ramsleeper
 ```
 
