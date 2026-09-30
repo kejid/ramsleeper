@@ -1,4 +1,4 @@
-# Session RAM
+# RAM Sleeper
 
 See how much memory each running Claude Code session uses, including the MCP servers, shells, and other processes it started, and unload the idle ones without losing them. An unloaded session keeps its whole conversation and can be resumed later.
 
@@ -6,13 +6,13 @@ This is useful when you keep many sessions open, for example in the Claude deskt
 
 ## Use it
 
-Start with `/session-ram:setup`. It opens a local page that checks Node.js, lists the commands, starts the tray icon or gives the menu bar setup for your system, and answers common questions.
+Start with `/ramsleeper:setup`. It opens a local page that checks Node.js, lists the commands, starts the tray icon or gives the menu bar setup for your system, and answers common questions.
 
 In any Claude Code session:
 
-- `/session-ram:sessions` lists the sessions with their memory, process count, status (busy or idle), and last activity. In the Claude desktop app the list appears as an interactive card in the chat; in a terminal it is a table.
-- `/session-ram:sessions unload 3` unloads the session on row 3. Claude shows exactly which processes will stop and how much memory that frees, and asks you before stopping anything. You can also just ask, for example "which session eats the most memory?" or "unload the idle ones I haven't touched today".
-- `/session-ram:dashboard` opens a small local window that refreshes every 10 seconds and has an Unload button on each row.
+- `/ramsleeper:sessions` lists the sessions with their memory, process count, status (busy or idle), and last activity. In the Claude desktop app the list appears as an interactive card in the chat; in a terminal it is a table.
+- `/ramsleeper:sessions unload 3` unloads the session on row 3. Claude shows exactly which processes will stop and how much memory that frees, and asks you before stopping anything. You can also just ask, for example "which session eats the most memory?" or "unload the idle ones I haven't touched today".
+- `/ramsleeper:dashboard` opens a small local window that refreshes every 10 seconds and has an Unload button on each row.
 
 To continue an unloaded session:
 
@@ -31,18 +31,18 @@ To continue an unloaded session:
 
 These companions are optional and live in `companion/`. They use the same script as the plugin.
 
-Run `/session-ram:tray` to start the one for your system, or start it by hand as shown below.
+Run `/ramsleeper:tray` to start the one for your system, or start it by hand as shown below.
 
 **Windows notification area.** The icon shows whole gigabytes held by all sessions. Its color is green below 15 % of your RAM, amber below 30 %, and red above that. Left-click opens a list with Unload buttons. Right-click offers the dashboard, start at sign-in, and exit.
 
 ```
-powershell -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File companion\windows-tray\session-ram-tray.ps1
+powershell -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File companion\windows-tray\ramsleeper-tray.ps1
 ```
 
 **macOS menu bar and Linux panels.** Install [xbar](https://xbarapp.com) or [SwiftBar](https://swiftbar.app) on macOS, or [Argos](https://github.com/p-e-w/argos) on GNOME or [Kargos](https://github.com/lipido/kargos) on KDE. Then symlink the plugin script into that app's plugin folder:
 
 ```
-ln -s "$PWD/companion/menubar/session-ram.30s.sh" "<plugin folder>/session-ram.30s.sh"
+ln -s "$PWD/companion/menubar/ramsleeper.30s.sh" "<plugin folder>/ramsleeper.30s.sh"
 ```
 
 Unload asks for confirmation in a native dialog: `osascript` on macOS, `zenity` or `kdialog` on Linux.
@@ -53,7 +53,7 @@ The plugin needs [Node.js](https://nodejs.org) 18 or newer on `PATH`. It has no 
 
 ```
 claude plugin marketplace add <path or GitHub owner/repo of this repository>
-claude plugin install session-ram@session-ram
+claude plugin install ramsleeper@ramsleeper
 ```
 
 To try it without installing, run `claude --plugin-dir <path to this repository>`.
@@ -68,7 +68,7 @@ Tested on Windows 11 with the Claude desktop app and Claude Code 2.1: a session 
 
 ## Data
 
-The plugin runs locally and sends nothing over the network. It reads `~/.claude/sessions`, the transcripts' file names and first lines under `~/.claude/projects`, the Claude desktop app's session titles, and the process list. The Windows tray writes its process ID to `%LOCALAPPDATA%\session-ram\tray.pid`. Turning on start at sign-in adds a `Session RAM` shortcut to your Startup folder and a small launcher, `%LOCALAPPDATA%\session-ram\start-tray.ps1`, that starts the newest installed version of the tray. Turning it off removes both. The dashboard is a web server bound to `127.0.0.1` only. Each run uses a new random token, and every request must carry it, so other computers and other websites open in your browser cannot use it. The server stops 15 minutes after its page is closed.
+The plugin runs locally and sends nothing over the network. It reads `~/.claude/sessions`, the transcripts' file names and first lines under `~/.claude/projects`, the Claude desktop app's session titles, and the process list. The Windows tray writes its process ID to `%LOCALAPPDATA%\ramsleeper\tray.pid`. Turning on start at sign-in adds a `RAM Sleeper` shortcut to your Startup folder and a small launcher, `%LOCALAPPDATA%\ramsleeper\start-tray.ps1`, that starts the newest installed version of the tray. Turning it off removes both. The dashboard is a web server bound to `127.0.0.1` only. Each run uses a new random token, and every request must carry it, so other computers and other websites open in your browser cannot use it. The server stops 15 minutes after its page is closed.
 
 ## License
 

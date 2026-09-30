@@ -1,9 +1,9 @@
 ---
-name: session-ram
+name: ramsleeper
 description: Show how much memory (RAM) each running Claude Code session uses, with its MCP servers and other child processes, and unload an idle or stuck session to free memory without losing it. Use when the user asks which session eats memory, why the computer is slow with many Claude sessions open, how many sessions are running, or wants to close, stop, unload, hibernate or free memory from a session they will continue later.
 ---
 
-# Session RAM
+# RAM Sleeper
 
 The script `${CLAUDE_SKILL_DIR}/scripts/sessions.mjs` (Node.js, no dependencies) reads local files and the OS process table. It never sends anything over the network.
 

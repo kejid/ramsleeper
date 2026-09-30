@@ -1,10 +1,10 @@
 {
-  "name": "session-ram",
-  "description": "Session RAM: memory use per Claude Code session, with safe unload and resume.",
+  "name": "ramsleeper",
+  "description": "RAM Sleeper: memory use per Claude Code session, with safe unload and resume.",
   "owner": { "name": "Artyom" },
   "plugins": [
     {
-      "name": "session-ram",
+      "name": "ramsleeper",
       "source": "./",
       "description": "See how much memory each Claude Code session uses and unload idle sessions without losing them."
     }

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// session-ram: list running Claude Code sessions with their memory use, and
+// ramsleeper: list running Claude Code sessions with their memory use, and
 // unload (stop) an idle session so it can be resumed later from its transcript.
 //
 // Data sources (all local, nothing is sent anywhere):
@@ -433,13 +433,13 @@ const WIDGET_TEXT = {
   en: { inSessions: 'In sessions', counts: 'Sessions / processes', app: 'Claude app itself', asOf: 'As of',
     refresh: 'Refresh', unload: 'Unload', idle: 'idle', busy: 'busy', current: 'this session', proc: 'proc.',
     mb: 'MB', gb: 'GB', none: 'No running Claude Code sessions.',
-    interrupt: 'Interrupt', askRefresh: 'Refresh the session-ram list',
-    askUnload: (t, pid, busy) => `Unload the session "${t}" (PID ${pid}) with session-ram${busy ? '; it is busy, so interrupt its running turn' : ''}` },
+    interrupt: 'Interrupt', askRefresh: 'Refresh the ramsleeper list',
+    askUnload: (t, pid, busy) => `Unload the session "${t}" (PID ${pid}) with ramsleeper${busy ? '; it is busy, so interrupt its running turn' : ''}` },
   ru: { inSessions: 'В сессиях', counts: 'Сессий / процессов', app: 'Само приложение', asOf: 'На',
     refresh: 'Обновить', unload: 'Выгрузить', idle: 'ждёт', busy: 'работает', current: 'эта сессия', proc: 'проц.',
     mb: 'МБ', gb: 'ГБ', none: 'Запущенных сессий Claude Code нет.',
-    interrupt: 'Прервать', askRefresh: 'Обнови список сессий session-ram',
-    askUnload: (t, pid, busy) => `Выгрузи сессию «${t}» (PID ${pid}) через session-ram${busy ? '; она работает — прерви текущий ход' : ''}` },
+    interrupt: 'Прервать', askRefresh: 'Обнови список сессий ramsleeper',
+    askUnload: (t, pid, busy) => `Выгрузи сессию «${t}» (PID ${pid}) через ramsleeper${busy ? '; она работает — прерви текущий ход' : ''}` },
 };
 
 function widgetHtml(data, lang) {
@@ -552,7 +552,7 @@ function confirmUnload(target, { force = false } = {}) {
   const preview = unloadSession(target, { force });
   const s = preview.session;
   const say = (msg, isError) => nativeMessage(msg, isError);
-  if (!preview.ok) { say(`Session RAM: ${preview.error}`, true); process.exit(2); }
+  if (!preview.ok) { say(`RAM Sleeper: ${preview.error}`, true); process.exit(2); }
 
   const lines = [
     `Unload "${s.title}"?`, '',
@@ -563,7 +563,7 @@ function confirmUnload(target, { force = false } = {}) {
   ];
   if (!nativeConfirm(lines.join('\n'))) return;
   const r = unloadSession(String(s.pid), { yes: true, force, expectSessionId: s.sessionId });
-  say(r.ok ? `Unloaded "${s.title}", ~${mb(r.freedBytes)} freed.` : `Session RAM: ${r.error}`, !r.ok);
+  say(r.ok ? `Unloaded "${s.title}", ~${mb(r.freedBytes)} freed.` : `RAM Sleeper: ${r.error}`, !r.ok);
 }
 
 function which(bin) {
@@ -574,17 +574,17 @@ function nativeConfirm(text) {
   try {
     if (process.platform === 'darwin') {
       execFileSync('osascript', ['-e', 'on run argv', '-e',
-        'display dialog (item 1 of argv) with title "Session RAM" buttons {"Cancel", "Unload"} default button "Cancel" cancel button "Cancel" with icon caution',
+        'display dialog (item 1 of argv) with title "RAM Sleeper" buttons {"Cancel", "Unload"} default button "Cancel" cancel button "Cancel" with icon caution',
         '-e', 'end run', text], { stdio: 'ignore' });
       return true;
     }
     if (which('zenity')) {
       const markup = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      execFileSync('zenity', ['--question', '--title=Session RAM', `--text=${markup}`, '--ok-label=Unload', '--cancel-label=Cancel', '--default-cancel'], { stdio: 'ignore' });
+      execFileSync('zenity', ['--question', '--title=RAM Sleeper', `--text=${markup}`, '--ok-label=Unload', '--cancel-label=Cancel', '--default-cancel'], { stdio: 'ignore' });
       return true;
     }
     if (which('kdialog')) {
-      execFileSync('kdialog', ['--title', 'Session RAM', '--warningcontinuecancel', text, '--continue-label', 'Unload'], { stdio: 'ignore' });
+      execFileSync('kdialog', ['--title', 'RAM Sleeper', '--warningcontinuecancel', text, '--continue-label', 'Unload'], { stdio: 'ignore' });
       return true;
     }
   } catch { return false; } // Cancel exits non-zero.
@@ -595,9 +595,9 @@ function nativeConfirm(text) {
 function nativeMessage(text, isError) {
   try {
     if (process.platform === 'darwin') {
-      execFileSync('osascript', ['-e', 'on run argv', '-e', 'display notification (item 1 of argv) with title "Session RAM"', '-e', 'end run', text], { stdio: 'ignore' });
+      execFileSync('osascript', ['-e', 'on run argv', '-e', 'display notification (item 1 of argv) with title "RAM Sleeper"', '-e', 'end run', text], { stdio: 'ignore' });
     } else if (which('notify-send')) {
-      execFileSync('notify-send', [...(isError ? ['--urgency=critical'] : []), 'Session RAM', text], { stdio: 'ignore' });
+      execFileSync('notify-send', [...(isError ? ['--urgency=critical'] : []), 'RAM Sleeper', text], { stdio: 'ignore' });
     }
   } catch { /* the message is printed below as well */ }
   (isError ? console.error : console.log)(text);
@@ -606,8 +606,8 @@ function nativeMessage(text, isError) {
 // ---------------------------------------------------------------- setup
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-const TRAY_SCRIPT = path.join(PLUGIN_ROOT, 'companion', 'windows-tray', 'session-ram-tray.ps1');
-const MENUBAR_SCRIPT = path.join(PLUGIN_ROOT, 'companion', 'menubar', 'session-ram.30s.sh');
+const TRAY_SCRIPT = path.join(PLUGIN_ROOT, 'companion', 'windows-tray', 'ramsleeper-tray.ps1');
+const MENUBAR_SCRIPT = path.join(PLUGIN_ROOT, 'companion', 'menubar', 'ramsleeper.30s.sh');
 
 // The tray's PID file survives a crash or sign-out, so a live PID alone is not
 // proof: it must still be a PowerShell process.
@@ -620,9 +620,9 @@ function trayRunning(pid) {
 }
 
 function trayState() {
-  const dir = path.join(process.env.LOCALAPPDATA || path.join(HOME, 'AppData', 'Local'), 'session-ram');
+  const dir = path.join(process.env.LOCALAPPDATA || path.join(HOME, 'AppData', 'Local'), 'ramsleeper');
   const pid = Number((() => { try { return fs.readFileSync(path.join(dir, 'tray.pid'), 'utf8').trim(); } catch { return ''; } })());
-  const startup = path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'Session RAM.lnk');
+  const startup = path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'RAM Sleeper.lnk');
   return { running: trayRunning(pid), autostart: fs.existsSync(startup) };
 }
 
@@ -636,7 +636,7 @@ function menubarApps() {
     { name: 'Argos (GNOME)', url: 'https://github.com/p-e-w/argos', installed: exists(path.join(HOME, '.local/share/gnome-shell/extensions/argos@pew.worldwidemann.com')), folder: '~/.config/argos' },
     { name: 'Kargos (KDE)', url: 'https://github.com/lipido/kargos', installed: exists(path.join(HOME, '.local/share/plasma/plasmoids/org.kde.kargos')), folder: '~/.config/kargos' },
   ] : [];
-  return apps.map(a => ({ ...a, command: `mkdir -p "${a.folder.replace('~', '$HOME')}" && ln -sf "${MENUBAR_SCRIPT}" "${a.folder.replace('~', '$HOME')}/session-ram.30s.sh"` }));
+  return apps.map(a => ({ ...a, command: `mkdir -p "${a.folder.replace('~', '$HOME')}" && ln -sf "${MENUBAR_SCRIPT}" "${a.folder.replace('~', '$HOME')}/ramsleeper.30s.sh"` }));
 }
 
 function setupStatus() {
@@ -696,7 +696,7 @@ async function serve({ port = 0, open = true, asTab = false, keep = false, page 
   const http = await import('node:http');
   const crypto = await import('node:crypto');
   const token = crypto.randomBytes(16).toString('hex');
-  const htmlPath = path.join(PLUGIN_ROOT, 'skills', 'session-ram', 'scripts', 'dashboard.html');
+  const htmlPath = path.join(PLUGIN_ROOT, 'skills', 'ramsleeper', 'scripts', 'dashboard.html');
   const IDLE_EXIT_MS = 15 * 60 * 1000;
   let lastSeen = Date.now();
   let cache = null;
@@ -719,12 +719,12 @@ async function serve({ port = 0, open = true, asTab = false, keep = false, page 
     lastSeen = Date.now();
 
     if (req.method === 'GET' && url.pathname === '/') {
-      if (url.searchParams.get('t') !== token) return send(res, 403, 'Forbidden: open the link printed by session-ram.', 'text/plain; charset=utf-8');
+      if (url.searchParams.get('t') !== token) return send(res, 403, 'Forbidden: open the link printed by ramsleeper.', 'text/plain; charset=utf-8');
       const html = fs.readFileSync(htmlPath, 'utf8').replace('__TOKEN__', token);
       return send(res, 200, html, 'text/html; charset=utf-8');
     }
     // API calls must send the token in a header, which a cross-site page cannot do without CORS.
-    if (req.headers['x-session-ram-token'] !== token) return send(res, 403, { error: 'bad token' });
+    if (req.headers['x-ramsleeper-token'] !== token) return send(res, 403, { error: 'bad token' });
 
     try {
       if (req.method === 'GET' && url.pathname === '/api/sessions') return send(res, 200, listSessions());
@@ -758,7 +758,7 @@ async function serve({ port = 0, open = true, asTab = false, keep = false, page 
 
   await new Promise((ok, fail) => { server.once('error', fail); server.listen(port, '127.0.0.1', ok); });
   const link = `http://127.0.0.1:${server.address().port}/?t=${token}${page ? `#${page}` : ''}`;
-  console.log(`Session RAM dashboard: ${link}`);
+  console.log(`RAM Sleeper dashboard: ${link}`);
   console.log(keep ? 'It keeps running until you press Ctrl+C.' : 'It stops by itself 15 minutes after the page is closed. Press Ctrl+C to stop now.');
 
   if (open) openWindow(link, { appWindow: !asTab });

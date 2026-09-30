@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# <xbar.title>Session RAM</xbar.title>
-# <xbar.version>v0.2.2</xbar.version>
+# <xbar.title>RAM Sleeper</xbar.title>
+# <xbar.version>v0.3.0</xbar.version>
 # <xbar.desc>Memory used by each Claude Code session, with Unload.</xbar.desc>
 # <xbar.dependencies>node</xbar.dependencies>
 # <swiftbar.hideRunInTerminal>true</swiftbar.hideRunInTerminal>
@@ -16,12 +16,12 @@ for d in "$HOME"/.nvm/versions/node/*/bin; do [ -d "$d" ] && PATH="$d:$PATH"; do
 export PATH
 
 self="$(readlink -f "$0" 2>/dev/null || echo "$0")"
-script="$(dirname "$self")/../../skills/session-ram/scripts/sessions.mjs"
+script="$(dirname "$self")/../../skills/ramsleeper/scripts/sessions.mjs"
 
 if ! command -v node >/dev/null 2>&1; then
   echo "RAM ?"
   echo "---"
-  echo "Session RAM needs Node.js 18 or newer | disabled=true"
+  echo "RAM Sleeper needs Node.js 18 or newer | disabled=true"
   exit 0
 fi
 

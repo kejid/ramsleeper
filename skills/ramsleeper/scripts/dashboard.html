@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Session RAM</title>
+<title>RAM Sleeper</title>
 <style>
   :root {
     --bg: #f7f6f2; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6a65; --line: #e4e2da;
@@ -93,7 +93,7 @@
 <body>
 <main>
   <header>
-    <h1>Session RAM</h1>
+    <h1>RAM Sleeper</h1>
     <nav class="tabs" aria-label="Views">
       <a href="#sessions" id="tab-sessions" data-i18n="tabSessions"></a>
       <a href="#setup" id="tab-setup" data-i18n="tabSetup"></a>
@@ -139,7 +139,7 @@ const T = RU ? {
   resumeCli: c => `Чтобы продолжить: <code>${c}</code>`,
   done: (t, m) => `«${t}» выгружена, освобождено ~${m}.`, failed: e => `Не удалось: ${e}`,
   metric: m => `Память: ${m === 'RSS' ? 'RSS (разделяемые страницы считаются несколько раз)' : 'частный рабочий набор, как колонка «Память» в Диспетчере задач'}. Панель работает только на этом компьютере и ничего не отправляет в сеть.`,
-  gone: 'Панель остановлена. Запустите её снова командой /session-ram:dashboard.',
+  gone: 'Панель остановлена. Запустите её снова командой /ramsleeper:dashboard.',
 } : {
   loading: 'Loading…', cancel: 'Cancel', unload: 'Unload', session: 'Session', ram: 'Memory', procs: 'Processes',
   status: 'Status', last: 'Last activity', idle: 'idle', busy: 'busy', you: 'this session',
@@ -154,7 +154,7 @@ const T = RU ? {
   resumeCli: c => `To continue: <code>${c}</code>`,
   done: (t, m) => `Unloaded "${t}", ~${m} freed.`, failed: e => `Failed: ${e}`,
   metric: m => `Memory: ${m === 'RSS' ? 'RSS (shared pages are counted more than once)' : 'private working set, the same as the Memory column in Task Manager'}. The dashboard runs on this computer only and sends nothing over the network.`,
-  gone: 'The dashboard has stopped. Start it again with /session-ram:dashboard.',
+  gone: 'The dashboard has stopped. Start it again with /ramsleeper:dashboard.',
 };
 Object.assign(T, RU ? {
   tabSessions: 'Сессии', tabSetup: 'Настройка', faqTitle: 'Частые вопросы',
@@ -162,8 +162,8 @@ Object.assign(T, RU ? {
   nodeTitle: 'Node.js', nodeOk: v => `Установлен ${v}.`, nodeOld: v => `Установлен ${v}, нужен 18 или новее.`,
   cmdTitle: 'Команды в Claude Code',
   cmdHint: 'Или просто спросите Claude: «какая сессия ест больше всего памяти?», «выгрузи те, что простаивают с утра».',
-  cmds: [['/session-ram:sessions', 'список сессий с памятью'], ['/session-ram:sessions unload 3', 'выгрузить сессию из строки 3, с подтверждением'],
-    ['/session-ram:dashboard', 'эта панель'], ['/session-ram:tray', 'значок в трее или строке меню'], ['/session-ram:setup', 'эта страница настройки']],
+  cmds: [['/ramsleeper:sessions', 'список сессий с памятью'], ['/ramsleeper:sessions unload 3', 'выгрузить сессию из строки 3, с подтверждением'],
+    ['/ramsleeper:dashboard', 'эта панель'], ['/ramsleeper:tray', 'значок в трее или строке меню'], ['/ramsleeper:setup', 'эта страница настройки']],
   trayTitle: 'Значок в трее Windows', trayOn: 'Запущен. Цифра — занятые сессиями гигабайты, цвет — доля от всей памяти.',
   trayOff: 'Не запущен. Клик по значку открывает список сессий с кнопками выгрузки.', trayStart: 'Запустить',
   autoTitle: 'Запуск при входе в Windows', autoOn: 'Включён: значок появится сам после перезагрузки.', autoOff: 'Выключен.',
@@ -177,7 +177,7 @@ Object.assign(T, RU ? {
     ['Почему цифры не совпадают с Диспетчером задач?', 'Здесь считается частный рабочий набор всего дерева процессов сессии, как колонка «Память» на вкладке «Подробности». На вкладке «Процессы» Windows группирует процессы иначе. На macOS и Linux показывается RSS, где общая память учитывается несколько раз.'],
     ['Отправляет ли плагин что-то в сеть?', 'Нет. Всё читается с этого компьютера. Панель слушает только 127.0.0.1 и требует одноразовый токен из ссылки.'],
     ['Сколько стоит держать плагин установленным?', 'Фоновых процессов у плагина нет. В каждую сессию, где он включён, добавляется около 200 токенов описаний команд. Значок в трее — один процесс примерно на 60 МБ.'],
-    ['Как всё удалить?', 'Выключите запуск при входе здесь или в меню значка, выберите «Выход», затем выполните claude plugin uninstall session-ram@session-ram.'],
+    ['Как всё удалить?', 'Выключите запуск при входе здесь или в меню значка, выберите «Выход», затем выполните claude plugin uninstall ramsleeper@ramsleeper.'],
   ],
 } : {
   tabSessions: 'Sessions', tabSetup: 'Setup', faqTitle: 'Questions',
@@ -185,8 +185,8 @@ Object.assign(T, RU ? {
   nodeTitle: 'Node.js', nodeOk: v => `${v} is installed.`, nodeOld: v => `${v} is installed; version 18 or newer is needed.`,
   cmdTitle: 'Commands in Claude Code',
   cmdHint: 'Or just ask Claude, for example "which session uses the most memory?" or "unload the ones idle since this morning".',
-  cmds: [['/session-ram:sessions', 'list sessions with their memory'], ['/session-ram:sessions unload 3', 'unload the session on row 3, after you confirm'],
-    ['/session-ram:dashboard', 'this dashboard'], ['/session-ram:tray', 'tray or menu bar icon'], ['/session-ram:setup', 'this setup page']],
+  cmds: [['/ramsleeper:sessions', 'list sessions with their memory'], ['/ramsleeper:sessions unload 3', 'unload the session on row 3, after you confirm'],
+    ['/ramsleeper:dashboard', 'this dashboard'], ['/ramsleeper:tray', 'tray or menu bar icon'], ['/ramsleeper:setup', 'this setup page']],
   trayTitle: 'Windows tray icon', trayOn: 'Running. The number is gigabytes held by sessions; the color is their share of all memory.',
   trayOff: 'Not running. Clicking the icon opens the session list with Unload buttons.', trayStart: 'Start',
   autoTitle: 'Start at Windows sign-in', autoOn: 'On: the icon comes back by itself after a restart.', autoOff: 'Off.',
@@ -200,7 +200,7 @@ Object.assign(T, RU ? {
     ['Why don’t the numbers match Task Manager?', 'This counts the private working set of the session’s whole process tree, like the Memory column on the Details tab. The Processes tab groups processes differently. On macOS and Linux it shows RSS, which counts shared memory more than once.'],
     ['Does the plugin send anything over the network?', 'No. Everything is read on this computer. The dashboard listens on 127.0.0.1 only and needs the one-time token in its link.'],
     ['What does keeping the plugin installed cost?', 'The plugin has no background processes. Each session where it is enabled gets about 200 tokens of command descriptions. The tray icon is one process of about 60 MB.'],
-    ['How do I remove everything?', 'Turn off start at sign-in here or in the icon’s menu, choose Exit, then run claude plugin uninstall session-ram@session-ram.'],
+    ['How do I remove everything?', 'Turn off start at sign-in here or in the icon’s menu, choose Exit, then run claude plugin uninstall ramsleeper@ramsleeper.'],
   ],
 });
 document.documentElement.lang = RU ? 'ru' : 'en';
@@ -221,7 +221,7 @@ const isFlagged = c => c.notable;
 let data = null, lastOk = 0, pending = null;
 
 async function api(path, opts = {}) {
-  const r = await fetch(path, { ...opts, headers: { 'X-Session-Ram-Token': TOKEN, 'Content-Type': 'application/json' } });
+  const r = await fetch(path, { ...opts, headers: { 'X-Ramsleeper-Token': TOKEN, 'Content-Type': 'application/json' } });
   const j = await r.json().catch(() => ({}));
   if (!r.ok && !('ok' in j)) throw new Error(j.error || r.statusText);
   return j;

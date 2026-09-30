@@ -3,7 +3,7 @@ description: List Claude Code sessions with their memory use, or unload one ("un
 argument-hint: "[unload <number|title>]"
 ---
 
-Use the session-ram skill.
+Use the ramsleeper skill.
 
 Arguments: $ARGUMENTS
 

@@ -1,22 +1,22 @@
-﻿# Session RAM tray companion for Windows.
+﻿# RAM Sleeper tray companion for Windows.
 #
 # Shows the total memory of all Claude Code sessions in the notification area.
 # Left click opens a popup with every session and an Unload button; right click
 # offers the full dashboard, start-at-login and exit. All data comes from the
 # plugin's sessions.mjs, so the tray and the plugin always agree.
 #
-# Run:  powershell -NoProfile -STA -WindowStyle Hidden -File session-ram-tray.ps1
-#       ... -File session-ram-tray.ps1 -Autostart on|off   (set start at sign-in and exit)
+# Run:  powershell -NoProfile -STA -WindowStyle Hidden -File ramsleeper-tray.ps1
+#       ... -File ramsleeper-tray.ps1 -Autostart on|off   (set start at sign-in and exit)
 
 param([ValidateSet('on', 'off')][string]$Autostart)
 
 $ErrorActionPreference = 'Stop'
 
 # State lives outside the plugin folder, whose path changes with every version.
-$StateDir = Join-Path $env:LOCALAPPDATA 'session-ram'
+$StateDir = Join-Path $env:LOCALAPPDATA 'ramsleeper'
 $PidFile = Join-Path $StateDir 'tray.pid'
 $Launcher = Join-Path $StateDir 'start-tray.ps1'
-$StartupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'Session RAM.lnk'
+$StartupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'RAM Sleeper.lnk'
 
 # Start at sign-in goes through a small launcher that picks the newest
 # installed plugin version, so a plugin update does not break the shortcut.
@@ -27,12 +27,12 @@ function Set-Autostart([bool]$on) {
     }
     New-Item -ItemType Directory -Force $StateDir | Out-Null
     $fallback = $PSCommandPath -replace "'", "''"
-    $cache = (Join-Path $env:USERPROFILE '.claude\plugins\cache\session-ram\session-ram') -replace "'", "''"
+    $cache = (Join-Path $env:USERPROFILE '.claude\plugins\cache\ramsleeper\ramsleeper') -replace "'", "''"
     @"
-# Written by Session RAM. Starts the newest installed tray script.
+# Written by RAM Sleeper. Starts the newest installed tray script.
 `$tray = Get-ChildItem '$cache' -Directory -ErrorAction SilentlyContinue |
     Sort-Object { try { [version]`$_.Name } catch { [version]'0.0' } } -Descending |
-    ForEach-Object { Join-Path `$_.FullName 'companion\windows-tray\session-ram-tray.ps1' } |
+    ForEach-Object { Join-Path `$_.FullName 'companion\windows-tray\ramsleeper-tray.ps1' } |
     Where-Object { Test-Path `$_ } | Select-Object -First 1
 if (-not `$tray) { `$tray = '$fallback' }
 & `$tray
@@ -47,21 +47,21 @@ if (-not `$tray) { `$tray = '$fallback' }
 
 if ($Autostart) { Set-Autostart ($Autostart -eq 'on'); exit 0 }
 # Without this Windows bitmap-stretches the popup on scaled displays and it looks blurry.
-Add-Type -Namespace SessionRam -Name Dpi -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDPIAware();'
-[SessionRam.Dpi]::SetProcessDPIAware() | Out-Null
+Add-Type -Namespace RamSleeper -Name Dpi -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDPIAware();'
+[RamSleeper.Dpi]::SetProcessDPIAware() | Out-Null
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 # One tray icon per user: a second copy just exits.
-$mutex = New-Object System.Threading.Mutex($false, 'Local\SessionRamTray')
+$mutex = New-Object System.Threading.Mutex($false, 'Local\RamSleeperTray')
 if (-not $mutex.WaitOne(0)) { exit }
 New-Item -ItemType Directory -Force $StateDir | Out-Null
 Set-Content -Path $PidFile -Value $PID
 
-$Script = Join-Path $PSScriptRoot '..\..\skills\session-ram\scripts\sessions.mjs' | Resolve-Path | ForEach-Object Path
+$Script = Join-Path $PSScriptRoot '..\..\skills\ramsleeper\scripts\sessions.mjs' | Resolve-Path | ForEach-Object Path
 $Node = (Get-Command node -ErrorAction SilentlyContinue).Source
 if (-not $Node) {
-    [System.Windows.Forms.MessageBox]::Show('Session RAM needs Node.js 18 or newer on PATH.', 'Session RAM') | Out-Null
+    [System.Windows.Forms.MessageBox]::Show('RAM Sleeper needs Node.js 18 or newer on PATH.', 'RAM Sleeper') | Out-Null
     exit 1
 }
 
@@ -169,7 +169,7 @@ function New-TrayIcon([string]$text, [Drawing.Color]$bg) {
 
 $tray = New-Object System.Windows.Forms.NotifyIcon
 $tray.Icon = New-TrayIcon '·' $Level.none
-$tray.Text = 'Session RAM'
+$tray.Text = 'RAM Sleeper'
 $tray.Visible = $true
 
 # ------------------------------------------------------------------ popup
@@ -317,7 +317,7 @@ $timer.Add_Tick({
             $old = $tray.Icon
             $tray.Icon = New-TrayIcon $label $bg
             $old.Dispose()
-            $tip = 'Session RAM · {0} · {1} ({2:0}% RAM)' -f @($script:data.sessions).Count, (Format-Size $total), ($share * 100)
+            $tip = 'RAM Sleeper · {0} · {1} ({2:0}% RAM)' -f @($script:data.sessions).Count, (Format-Size $total), ($share * 100)
             $tray.Text = $tip.Substring(0, [Math]::Min(63, $tip.Length))
             if ($popup.Visible) { Build-Popup }
         } catch { }
@@ -348,9 +348,9 @@ function Confirm-Unload([int]$sessionPid) {
     if ($busy) { $argv += '--force' }
     $result = Invoke-Sessions $argv | ConvertFrom-Json
     if ($result.ok) {
-        $tray.ShowBalloonTip(5000, 'Session RAM', ($T.done -f $s.title, (Format-Size $result.freedBytes)), 'Info')
+        $tray.ShowBalloonTip(5000, 'RAM Sleeper', ($T.done -f $s.title, (Format-Size $result.freedBytes)), 'Info')
     } else {
-        $tray.ShowBalloonTip(5000, 'Session RAM', ($T.failed -f $result.error), 'Warning')
+        $tray.ShowBalloonTip(5000, 'RAM Sleeper', ($T.failed -f $result.error), 'Warning')
     }
     Start-Refresh
 }
