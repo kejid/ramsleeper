@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # <xbar.title>Session RAM</xbar.title>
-# <xbar.version>v0.1.0</xbar.version>
+# <xbar.version>v0.2.0</xbar.version>
 # <xbar.desc>Memory used by each Claude Code session, with Unload.</xbar.desc>
 # <xbar.dependencies>node</xbar.dependencies>
 # <swiftbar.hideRunInTerminal>true</swiftbar.hideRunInTerminal>

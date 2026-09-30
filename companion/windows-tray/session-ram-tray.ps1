@@ -6,8 +6,46 @@
 # plugin's sessions.mjs, so the tray and the plugin always agree.
 #
 # Run:  powershell -NoProfile -STA -WindowStyle Hidden -File session-ram-tray.ps1
+#       ... -File session-ram-tray.ps1 -Autostart on|off   (set start at sign-in and exit)
+
+param([ValidateSet('on', 'off')][string]$Autostart)
 
 $ErrorActionPreference = 'Stop'
+
+# State lives outside the plugin folder, whose path changes with every version.
+$StateDir = Join-Path $env:LOCALAPPDATA 'session-ram'
+$PidFile = Join-Path $StateDir 'tray.pid'
+$Launcher = Join-Path $StateDir 'start-tray.ps1'
+$StartupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'Session RAM.lnk'
+
+# Start at sign-in goes through a small launcher that picks the newest
+# installed plugin version, so a plugin update does not break the shortcut.
+function Set-Autostart([bool]$on) {
+    if (-not $on) {
+        Remove-Item $StartupLnk, $Launcher -ErrorAction SilentlyContinue
+        return
+    }
+    New-Item -ItemType Directory -Force $StateDir | Out-Null
+    $fallback = $PSCommandPath -replace "'", "''"
+    $cache = Join-Path $env:USERPROFILE '.claude\plugins\cache\session-ram\session-ram'
+    @"
+# Written by Session RAM. Starts the newest installed tray script.
+`$tray = Get-ChildItem '$cache' -Directory -ErrorAction SilentlyContinue |
+    Sort-Object { try { [version]`$_.Name } catch { [version]'0.0' } } -Descending |
+    ForEach-Object { Join-Path `$_.FullName 'companion\windows-tray\session-ram-tray.ps1' } |
+    Where-Object { Test-Path `$_ } | Select-Object -First 1
+if (-not `$tray) { `$tray = '$fallback' }
+& `$tray
+"@ | Set-Content -Path $Launcher -Encoding UTF8
+    $sh = New-Object -ComObject WScript.Shell
+    $lnk = $sh.CreateShortcut($StartupLnk)
+    $lnk.TargetPath = (Get-Command powershell.exe).Source
+    $lnk.Arguments = "-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Launcher`""
+    $lnk.WorkingDirectory = $StateDir
+    $lnk.Save()
+}
+
+if ($Autostart) { Set-Autostart ($Autostart -eq 'on'); exit 0 }
 # Without this Windows bitmap-stretches the popup on scaled displays and it looks blurry.
 Add-Type -Namespace SessionRam -Name Dpi -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDPIAware();'
 [SessionRam.Dpi]::SetProcessDPIAware() | Out-Null
@@ -17,6 +55,8 @@ Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 # One tray icon per user: a second copy just exits.
 $mutex = New-Object System.Threading.Mutex($false, 'Local\SessionRamTray')
 if (-not $mutex.WaitOne(0)) { exit }
+New-Item -ItemType Directory -Force $StateDir | Out-Null
+Set-Content -Path $PidFile -Value $PID
 
 $Script = Join-Path $PSScriptRoot '..\..\skills\session-ram\scripts\sessions.mjs' | Resolve-Path | ForEach-Object Path
 $Node = (Get-Command node -ErrorAction SilentlyContinue).Source
@@ -307,27 +347,13 @@ function Open-Dashboard {
     Start-Process -FilePath $Node -ArgumentList "`"$Script`"", 'serve' -WindowStyle Hidden
 }
 
-$startup = Join-Path ([Environment]::GetFolderPath('Startup')) 'Session RAM.lnk'
-function Set-Autostart([bool]$on) {
-    if ($on) {
-        $sh = New-Object -ComObject WScript.Shell
-        $lnk = $sh.CreateShortcut($startup)
-        $lnk.TargetPath = (Get-Command powershell.exe).Source
-        $lnk.Arguments = "-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PSCommandPath`""
-        $lnk.WorkingDirectory = $PSScriptRoot
-        $lnk.Save()
-    } elseif (Test-Path $startup) {
-        Remove-Item $startup
-    }
-}
-
 # ------------------------------------------------------------------ menu
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $menu.Items.Add($T.dashboard, $null, { Open-Dashboard }) | Out-Null
 $menu.Items.Add($T.refresh, $null, { Start-Refresh }) | Out-Null
 $auto = New-Object System.Windows.Forms.ToolStripMenuItem($T.autostart)
-$auto.Checked = Test-Path $startup
-$auto.Add_Click({ Set-Autostart (-not $auto.Checked); $auto.Checked = Test-Path $startup })
+$auto.Checked = Test-Path $StartupLnk
+$auto.Add_Click({ Set-Autostart (-not $auto.Checked); $auto.Checked = Test-Path $StartupLnk })
 $menu.Items.Add($auto) | Out-Null
 $menu.Items.Add('-') | Out-Null
 $menu.Items.Add($T.exit, $null, { $tray.Visible = $false; [System.Windows.Forms.Application]::Exit() }) | Out-Null
@@ -342,4 +368,5 @@ Start-Refresh
 [System.Windows.Forms.Application]::Run()
 $tray.Dispose()
 $rs.Close()
+Remove-Item $PidFile -ErrorAction SilentlyContinue
 $mutex.ReleaseMutex()

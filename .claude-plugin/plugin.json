@@ -1,7 +1,7 @@
 {
   "name": "session-ram",
   "displayName": "Session RAM",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "See how much memory each running Claude Code session uses, including its MCP servers and other child processes, and unload idle sessions without losing them so you can resume them later.",
   "author": { "name": "Artyom" },
   "license": "MIT",

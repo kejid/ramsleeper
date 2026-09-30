@@ -57,7 +57,33 @@
   .note { background: var(--accent-soft); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin: 12px 0; }
   .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
   #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: calc(100vw - 32px); background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 14px; display: none; }
+  .tabs { display: flex; gap: 4px; }
+  .tabs a { padding: 4px 12px; border-radius: 99px; color: var(--muted); text-decoration: none; font-size: 14px; }
+  .tabs a[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .tabs a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .h2 { font-size: 17px; margin: 26px 0 10px; }
+  .step { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .step:last-child { border-bottom: 0; }
+  .mark { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; background: var(--bar); color: var(--muted); }
+  .mark.ok { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+  .mark.todo { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .step b { display: block; margin-bottom: 2px; }
+  .step p { margin: 2px 0; color: var(--muted); font-size: 14px; }
+  .step .btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  code, .cmd { font: 13px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+  .cmd { display: flex; gap: 8px; align-items: center; margin-top: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+  .cmd span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .cmd button { padding: 3px 10px; font-size: 13px; }
+  ul.cmds { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }
+  ul.cmds li { margin: 3px 0; }
+  .faq details { border-bottom: 1px solid var(--line); padding: 12px 16px; }
+  .faq details:last-child { border-bottom: 0; }
+  .faq summary { cursor: pointer; font-weight: 600; }
+  .faq summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .faq p { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
   @media (max-width: 720px) {
+    .step { grid-template-columns: 28px minmax(0, 1fr); }
+    .step .btns { grid-column: 2; justify-content: flex-start; }
     .hide-sm { display: none; }
     th, td { padding: 8px; }
     .ram { min-width: 90px; }
@@ -68,11 +94,22 @@
 <main>
   <header>
     <h1>Session RAM</h1>
+    <nav class="tabs" aria-label="Views">
+      <a href="#sessions" id="tab-sessions" data-i18n="tabSessions"></a>
+      <a href="#setup" id="tab-setup" data-i18n="tabSetup"></a>
+    </nav>
     <span class="sub" id="updated"></span>
   </header>
-  <section class="stats" id="stats"></section>
-  <section class="card" id="list"><div class="empty" data-i18n="loading"></div></section>
-  <p class="foot" id="metric"></p>
+  <div id="view-sessions">
+    <section class="stats" id="stats"></section>
+    <section class="card" id="list"><div class="empty" data-i18n="loading"></div></section>
+    <p class="foot" id="metric"></p>
+  </div>
+  <div id="view-setup" hidden>
+    <section class="card steps" id="steps"><div class="empty" data-i18n="loading"></div></section>
+    <h2 class="h2" data-i18n="faqTitle"></h2>
+    <section class="card faq" id="faq"></section>
+  </div>
 </main>
 
 <dialog id="confirm">
@@ -119,6 +156,51 @@ const T = RU ? {
   metric: m => `Memory: ${m === 'RSS' ? 'RSS (shared pages are counted more than once)' : 'private working set, the same as the Memory column in Task Manager'}. The dashboard runs on this computer only and sends nothing over the network.`,
   gone: 'The dashboard has stopped. Start it again with /session-ram:dashboard.',
 };
+Object.assign(T, RU ? {
+  tabSessions: 'Сессии', tabSetup: 'Настройка', faqTitle: 'Частые вопросы',
+  nodeTitle: 'Node.js', nodeOk: v => `Установлен ${v}.`, nodeOld: v => `Установлен ${v}, нужен 18 или новее.`,
+  cmdTitle: 'Команды в Claude Code',
+  cmdHint: 'Или просто спросите Claude: «какая сессия ест больше всего памяти?», «выгрузи те, что простаивают с утра».',
+  cmds: [['/session-ram:sessions', 'список сессий с памятью'], ['/session-ram:sessions unload 3', 'выгрузить сессию из строки 3, с подтверждением'],
+    ['/session-ram:dashboard', 'эта панель'], ['/session-ram:tray', 'значок в трее или строке меню'], ['/session-ram:setup', 'эта страница настройки']],
+  trayTitle: 'Значок в трее Windows', trayOn: 'Запущен. Цифра — занятые сессиями гигабайты, цвет — доля от всей памяти.',
+  trayOff: 'Не запущен. Клик по значку открывает список сессий с кнопками выгрузки.', trayStart: 'Запустить',
+  autoTitle: 'Запуск при входе в Windows', autoOn: 'Включён: значок появится сам после перезагрузки.', autoOff: 'Выключен.',
+  autoEnable: 'Включить', autoDisable: 'Выключить',
+  menuTitle: 'Строка меню', menuHint: 'Установите одно из приложений и выполните команду в терминале.',
+  installed: 'установлено', notInstalled: 'не установлено', copy: 'Копировать', copied: 'Скопировано',
+  faq: [
+    ['Потеряется ли переписка?', 'Нет. Выгрузка останавливает только процессы. Транскрипт сессии в ~/.claude/projects не трогается, и при следующем сообщении приложение запускает сессию из него с той же перепиской.'],
+    ['Что будет с dev-сервером или базой, запущенными из сессии?', 'Они остановятся вместе с сессией: это её дочерние процессы. В окне подтверждения они выделены отдельно, чтобы это не стало сюрпризом.'],
+    ['Почему нельзя выгрузить сессию со статусом «работает»?', 'Прервётся ход, который идёт прямо сейчас. Дождитесь, пока сессия перейдёт в «ждёт».'],
+    ['Почему цифры не совпадают с Диспетчером задач?', 'Здесь считается частный рабочий набор всего дерева процессов сессии, как колонка «Память» на вкладке «Подробности». На вкладке «Процессы» Windows группирует процессы иначе. На macOS и Linux показывается RSS, где общая память учитывается несколько раз.'],
+    ['Отправляет ли плагин что-то в сеть?', 'Нет. Всё читается с этого компьютера. Панель слушает только 127.0.0.1 и требует одноразовый токен из ссылки.'],
+    ['Сколько стоит держать плагин установленным?', 'Фоновых процессов у плагина нет. В каждую сессию, где он включён, добавляется около 200 токенов описаний команд. Значок в трее — один процесс примерно на 60 МБ.'],
+    ['Как всё удалить?', 'Выключите запуск при входе здесь или в меню значка, выберите «Выход», затем выполните claude plugin uninstall session-ram@session-ram.'],
+  ],
+} : {
+  tabSessions: 'Sessions', tabSetup: 'Setup', faqTitle: 'Questions',
+  nodeTitle: 'Node.js', nodeOk: v => `${v} is installed.`, nodeOld: v => `${v} is installed; version 18 or newer is needed.`,
+  cmdTitle: 'Commands in Claude Code',
+  cmdHint: 'Or just ask Claude, for example "which session uses the most memory?" or "unload the ones idle since this morning".',
+  cmds: [['/session-ram:sessions', 'list sessions with their memory'], ['/session-ram:sessions unload 3', 'unload the session on row 3, after you confirm'],
+    ['/session-ram:dashboard', 'this dashboard'], ['/session-ram:tray', 'tray or menu bar icon'], ['/session-ram:setup', 'this setup page']],
+  trayTitle: 'Windows tray icon', trayOn: 'Running. The number is gigabytes held by sessions; the color is their share of all memory.',
+  trayOff: 'Not running. Clicking the icon opens the session list with Unload buttons.', trayStart: 'Start',
+  autoTitle: 'Start at Windows sign-in', autoOn: 'On: the icon comes back by itself after a restart.', autoOff: 'Off.',
+  autoEnable: 'Turn on', autoDisable: 'Turn off',
+  menuTitle: 'Menu bar', menuHint: 'Install one of these apps, then run the command in a terminal.',
+  installed: 'installed', notInstalled: 'not installed', copy: 'Copy', copied: 'Copied',
+  faq: [
+    ['Do I lose the conversation?', 'No. Unloading stops processes only. The session transcript in ~/.claude/projects is not touched, and on the next message the app starts the session from it with the same conversation.'],
+    ['What happens to a dev server or database started from a session?', 'It stops with the session, because it is one of its child processes. The confirmation lists such processes separately so it is not a surprise.'],
+    ['Why can’t I unload a busy session?', 'The turn that is running would be cut off. Wait until the session is idle.'],
+    ['Why don’t the numbers match Task Manager?', 'This counts the private working set of the session’s whole process tree, like the Memory column on the Details tab. The Processes tab groups processes differently. On macOS and Linux it shows RSS, which counts shared memory more than once.'],
+    ['Does the plugin send anything over the network?', 'No. Everything is read on this computer. The dashboard listens on 127.0.0.1 only and needs the one-time token in its link.'],
+    ['What does keeping the plugin installed cost?', 'The plugin has no background processes. Each session where it is enabled gets about 200 tokens of command descriptions. The tray icon is one process of about 60 MB.'],
+    ['How do I remove everything?', 'Turn off start at sign-in here or in the icon’s menu, choose Exit, then run claude plugin uninstall session-ram@session-ram.'],
+  ],
+});
 document.documentElement.lang = RU ? 'ru' : 'en';
 document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = T[el.dataset.i18n]; });
 
@@ -225,6 +307,67 @@ function toast(msg) {
   clearTimeout(toast.t);
   toast.t = setTimeout(() => { el.style.display = 'none'; }, 7000);
 }
+
+// ---------------------------------------------------------------- setup view
+
+let setup = null;
+
+async function loadSetup() {
+  try { setup = await api('/api/setup'); renderSetup(); }
+  catch (e) { $('steps').innerHTML = `<div class="error">${esc(e.message)}</div>`; }
+}
+
+const step = (ok, title, body, buttons = '') =>
+  `<div class="step"><span class="mark ${ok === true ? 'ok' : ok === false ? 'todo' : ''}">${ok === true ? '✓' : ok === false ? '!' : '·'}</span>
+    <div><b>${title}</b>${body}</div><div class="btns">${buttons}</div></div>`;
+const cmdLine = text => `<div class="cmd"><span>${esc(text)}</span><button data-copy="${esc(text)}">${T.copy}</button></div>`;
+
+function renderSetup() {
+  const s = setup;
+  let html = step(s.node.ok, T.nodeTitle, `<p>${esc((s.node.ok ? T.nodeOk : T.nodeOld)(s.node.version))}</p>`);
+  html += step(null, T.cmdTitle,
+    `<ul class="cmds">${T.cmds.map(([c, d]) => `<li><code>${esc(c)}</code> — ${esc(d)}</li>`).join('')}</ul><p>${esc(T.cmdHint)}</p>`);
+  if (s.tray) {
+    html += step(s.tray.running, T.trayTitle, `<p>${s.tray.running ? T.trayOn : T.trayOff}</p>`,
+      s.tray.running ? '' : `<button data-act="tray">${T.trayStart}</button>`);
+    html += step(s.tray.autostart, T.autoTitle, `<p>${s.tray.autostart ? T.autoOn : T.autoOff}</p>`,
+      `<button data-act="${s.tray.autostart ? 'autostart-off' : 'autostart-on'}">${s.tray.autostart ? T.autoDisable : T.autoEnable}</button>`);
+  }
+  if (s.menubar && s.menubar.length) {
+    const any = s.menubar.some(a => a.installed);
+    html += step(any, T.menuTitle, `<p>${T.menuHint}</p>` + s.menubar.map(a =>
+      `<p style="margin-top:10px"><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.name)}</a> — ${a.installed ? T.installed : T.notInstalled}</p>${cmdLine(a.command)}`).join(''));
+  }
+  $('steps').innerHTML = html;
+  $('faq').innerHTML = T.faq.map(([q, a]) => `<details><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join('');
+}
+
+$('steps').addEventListener('click', async e => {
+  const copy = e.target.closest('button[data-copy]');
+  if (copy) {
+    try { await navigator.clipboard.writeText(copy.dataset.copy); copy.textContent = T.copied; } catch { /* select manually */ }
+    return;
+  }
+  const b = e.target.closest('button[data-act]');
+  if (!b) return;
+  b.disabled = true;
+  try { await api(`/api/setup/${b.dataset.act}`, { method: 'POST', body: '{}' }); }
+  catch (err) { toast(T.failed(err.message)); }
+  // The tray takes a moment to write its PID file.
+  setTimeout(loadSetup, b.dataset.act === 'tray' ? 2500 : 300);
+});
+
+function route() {
+  const isSetup = location.hash === '#setup';
+  $('view-setup').hidden = !isSetup;
+  $('view-sessions').hidden = isSetup;
+  $('tab-setup').toggleAttribute('aria-current', isSetup);
+  $('tab-sessions').toggleAttribute('aria-current', !isSetup);
+  if (isSetup) { $('tab-setup').setAttribute('aria-current', 'page'); loadSetup(); }
+  else $('tab-sessions').setAttribute('aria-current', 'page');
+}
+window.addEventListener('hashchange', route);
+route();
 
 refresh();
 setInterval(refresh, 10000);

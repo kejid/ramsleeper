@@ -14,7 +14,7 @@
 //   node sessions.mjs widget [--lang=en|ru]           HTML snapshot for inline chat widgets
 //   node sessions.mjs xbar                            menu for xbar/SwiftBar (macOS), Argos/Kargos (Linux)
 //   node sessions.mjs confirm-unload <pid>            native confirm dialog, then unload
-//   node sessions.mjs serve [--port=N] [--no-open] [--tab] [--keep]   local dashboard on 127.0.0.1
+//   node sessions.mjs serve [--port=N] [--no-open] [--tab] [--keep] [--setup]   local dashboard on 127.0.0.1
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -565,6 +565,52 @@ function nativeMessage(text, isError) {
   (isError ? console.error : console.log)(text);
 }
 
+// ---------------------------------------------------------------- setup
+
+const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const TRAY_SCRIPT = path.join(PLUGIN_ROOT, 'companion', 'windows-tray', 'session-ram-tray.ps1');
+const MENUBAR_SCRIPT = path.join(PLUGIN_ROOT, 'companion', 'menubar', 'session-ram.30s.sh');
+
+function trayState() {
+  const dir = path.join(process.env.LOCALAPPDATA || path.join(HOME, 'AppData', 'Local'), 'session-ram');
+  const pid = Number((() => { try { return fs.readFileSync(path.join(dir, 'tray.pid'), 'utf8').trim(); } catch { return ''; } })());
+  const startup = path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'Session RAM.lnk');
+  return { running: Boolean(pid) && alive(pid), autostart: fs.existsSync(startup) };
+}
+
+// Menu bar apps that read xbar-format plugins, with their usual plugin folders.
+function menubarApps() {
+  const exists = p => { try { fs.accessSync(p); return true; } catch { return false; } };
+  const apps = process.platform === 'darwin' ? [
+    { name: 'SwiftBar', url: 'https://swiftbar.app', installed: exists('/Applications/SwiftBar.app'), folder: '~/Library/Application Support/SwiftBar/Plugins' },
+    { name: 'xbar', url: 'https://xbarapp.com', installed: exists('/Applications/xbar.app'), folder: '~/Library/Application Support/xbar/plugins' },
+  ] : process.platform === 'linux' ? [
+    { name: 'Argos (GNOME)', url: 'https://github.com/p-e-w/argos', installed: exists(path.join(HOME, '.local/share/gnome-shell/extensions/argos@pew.worldwidemann.com')), folder: '~/.config/argos' },
+    { name: 'Kargos (KDE)', url: 'https://github.com/lipido/kargos', installed: exists(path.join(HOME, '.local/share/plasma/plasmoids/org.kde.kargos')), folder: '~/.config/kargos' },
+  ] : [];
+  return apps.map(a => ({ ...a, command: `mkdir -p "${a.folder.replace('~', '$HOME')}" && ln -sf "${MENUBAR_SCRIPT}" "${a.folder.replace('~', '$HOME')}/session-ram.30s.sh"` }));
+}
+
+function setupStatus() {
+  const major = Number(process.versions.node.split('.')[0]);
+  return {
+    platform: process.platform,
+    node: { version: process.version, ok: major >= 18 },
+    tray: IS_WIN ? trayState() : null,
+    menubar: IS_WIN ? null : menubarApps(),
+  };
+}
+
+function startTray() {
+  spawn('powershell.exe', ['-NoProfile', '-STA', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', TRAY_SCRIPT],
+    { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+}
+
+function setAutostart(on) {
+  execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', TRAY_SCRIPT, '-Autostart', on ? 'on' : 'off'],
+    { stdio: 'ignore', windowsHide: true });
+}
+
 // ---------------------------------------------------------------- dashboard
 
 // A local web page with the same list and an Unload button. It listens on
@@ -595,11 +641,11 @@ function openWindow(link, { appWindow }) {
   } catch { /* the link is printed anyway */ }
 }
 
-async function serve({ port = 0, open = true, asTab = false, keep = false }) {
+async function serve({ port = 0, open = true, asTab = false, keep = false, page = '' }) {
   const http = await import('node:http');
   const crypto = await import('node:crypto');
   const token = crypto.randomBytes(16).toString('hex');
-  const htmlPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'dashboard.html');
+  const htmlPath = path.join(PLUGIN_ROOT, 'skills', 'session-ram', 'scripts', 'dashboard.html');
   const IDLE_EXIT_MS = 15 * 60 * 1000;
   let lastSeen = Date.now();
   let cache = null;
@@ -631,6 +677,15 @@ async function serve({ port = 0, open = true, asTab = false, keep = false }) {
 
     try {
       if (req.method === 'GET' && url.pathname === '/api/sessions') return send(res, 200, listSessions());
+      if (req.method === 'GET' && url.pathname === '/api/setup') return send(res, 200, setupStatus());
+      if (req.method === 'POST' && url.pathname === '/api/setup/tray' && IS_WIN) {
+        startTray();
+        return send(res, 200, { ok: true });
+      }
+      if (req.method === 'POST' && (url.pathname === '/api/setup/autostart-on' || url.pathname === '/api/setup/autostart-off') && IS_WIN) {
+        setAutostart(url.pathname.endsWith('-on'));
+        return send(res, 200, { ok: true, ...trayState() });
+      }
       if (req.method === 'POST' && url.pathname === '/api/unload') {
         let body = '';
         req.on('data', c => { body += c; if (body.length > 10000) req.destroy(); });
@@ -651,7 +706,7 @@ async function serve({ port = 0, open = true, asTab = false, keep = false }) {
   });
 
   await new Promise((ok, fail) => { server.once('error', fail); server.listen(port, '127.0.0.1', ok); });
-  const link = `http://127.0.0.1:${server.address().port}/?t=${token}`;
+  const link = `http://127.0.0.1:${server.address().port}/?t=${token}${page ? `#${page}` : ''}`;
   console.log(`Session RAM dashboard: ${link}`);
   console.log(keep ? 'It keeps running until you press Ctrl+C.' : 'It stops by itself 15 minutes after the page is closed. Press Ctrl+C to stop now.');
 
@@ -683,7 +738,7 @@ try {
     if (!pos[1]) throw new Error('usage: confirm-unload <pid>');
     confirmUnload(pos[1]);
   } else if (cmd === 'serve') {
-    await serve({ port: portArg ? Number(portArg.split('=')[1]) : 0, open: !flags.has('--no-open'), asTab: flags.has('--tab'), keep: flags.has('--keep') });
+    await serve({ port: portArg ? Number(portArg.split('=')[1]) : 0, open: !flags.has('--no-open'), asTab: flags.has('--tab'), keep: flags.has('--keep'), page: flags.has('--setup') ? 'setup' : '' });
   } else {
     throw new Error(`unknown command "${cmd}". Use "list", "unload" or "serve".`);
   }
