@@ -76,7 +76,7 @@ $T = if ($RU) { @{
     busy = 'работает'; idle = 'ждёт'; mb = 'МБ'; gb = 'ГБ'
     refresh = 'Обновить'; dashboard = 'Открыть панель'; autostart = 'Запускать при входе в Windows'; exit = 'Выход'
     tip = 'Ждут {0} из {1} сессий · {2} ({3:0}% памяти)'
-    legend = 'Цифра на значке — сколько сессий ждут {0}+ мин: их можно выгрузить. Цвет — сколько памяти занимают все сессии: зелёный до 15%, жёлтый до 30%, красный больше.'
+    legend = 'Цифра на значке — сколько сессий ждут {0}+ мин: их можно выгрузить. Цвет — какую долю всей памяти компьютера занимают сессии: зелёный до {1}%, жёлтый до {2}%, красный больше.'
     none = 'Запущенных сессий нет'; loading = 'Загрузка…'; updated = 'обновлено'; app = 'приложение Claude'
     confirmTitle = 'Выгрузить сессию?'; frees = 'Освободится около {0} ({1} процессов).'
     flagged = 'Остановится и это (не MCP-сервер):'; keep = 'Переписка останется в транскрипте.'
@@ -88,7 +88,7 @@ $T = if ($RU) { @{
     busy = 'busy'; idle = 'idle'; mb = 'MB'; gb = 'GB'
     refresh = 'Refresh'; dashboard = 'Open dashboard'; autostart = 'Start at Windows sign-in'; exit = 'Exit'
     tip = '{0} of {1} sessions idle · {2} ({3:0}% of memory)'
-    legend = 'The number on the icon is how many sessions have been idle {0}+ minutes, ready to unload. The color is how much memory all sessions hold: green under 15%, amber under 30%, red above.'
+    legend = 'The number on the icon is how many sessions have been idle {0}+ minutes, ready to unload. The color is the share of the computer''s total memory all sessions hold: green under {1}%, amber under {2}%, red above.'
     none = 'No running sessions'; loading = 'Loading…'; updated = 'updated'; app = 'Claude app'
     confirmTitle = 'Unload this session?'; frees = 'Frees about {0} ({1} processes).'
     flagged = 'This stops too (not an MCP server):'; keep = 'The conversation stays in its transcript.'
@@ -146,6 +146,11 @@ $FontHead = New-Object Drawing.Font('Segoe UI Semibold', 11)
 # 30 %, red above. The tooltip has the exact figures.
 function Get-IdleMinutes {
     if ($script:data -and $script:data.idleMinutes -gt 0) { [int]$script:data.idleMinutes } else { 3 }
+}
+
+# Color bands (share of total RAM), set on the setup page; 15 % and 30 % by default.
+function Get-Levels {
+    if ($script:data -and $script:data.levels) { @{ warn = [int]$script:data.levels.warnPct; high = [int]$script:data.levels.highPct } } else { @{ warn = 15; high = 30 } }
 }
 
 function Get-SleepySessions {
@@ -241,7 +246,8 @@ function Build-Popup {
     if ($script:data) { Add-Label $popup (Format-Size $total) $FontHead $C.fg ($w - 150 - $pad) $y 150 'MiddleRight' | Out-Null }
     $y += 26
     # Explains the tray icon, which is too small to label.
-    $legend = $T.legend -f (Get-IdleMinutes)
+    $lv = Get-Levels
+    $legend = $T.legend -f (Get-IdleMinutes), $lv.warn, $lv.high
     $lg = Add-Label $popup $legend $FontUi $C.muted $pad $y ($w - 2 * $pad)
     $lg.Height = [System.Windows.Forms.TextRenderer]::MeasureText($legend, $FontUi, (New-Object Drawing.Size(($w - 2 * $pad), 0)), [System.Windows.Forms.TextFormatFlags]::WordBreak).Height + 4
     $y += $lg.Height + 6
@@ -344,7 +350,8 @@ $timer.Add_Tick({
             $sleepy = @(Get-SleepySessions).Count
             $label = if ($sleepy -gt 99) { '99' } else { [string]$sleepy }
             $share = if ($script:data.systemMemBytes) { $total / $script:data.systemMemBytes } else { 0 }
-            $bg = if ($share -ge 0.30) { $Level.high } elseif ($share -ge 0.15) { $Level.warn } else { $Level.ok }
+            $lv = Get-Levels
+            $bg = if ($share * 100 -ge $lv.high) { $Level.high } elseif ($share * 100 -ge $lv.warn) { $Level.warn } else { $Level.ok }
             $old = $tray.Icon
             $tray.Icon = New-TrayIcon $label $bg
             $old.Dispose()
@@ -426,7 +433,8 @@ if ($Snapshot) {
     $g.TextRenderingHint = 'ClearTypeGridFit'
     $cap = New-Object Drawing.SolidBrush($C.muted)
     $yy = 20
-    foreach ($v in @(@('2', $Level.ok, '< 15% RAM'), @('7', $Level.warn, '< 30% RAM'), @('12', $Level.high, '30%+ RAM'))) {
+    $lv = Get-Levels
+    foreach ($v in @(@('2', $Level.ok, ('< {0}% RAM' -f $lv.warn)), @('7', $Level.warn, ('< {0}% RAM' -f $lv.high)), @('12', $Level.high, ('{0}%+ RAM' -f $lv.high)))) {
         $ic = New-TrayIcon $v[0] $v[1] 32
         $g.DrawImage($ic.ToBitmap(), ($pw + 28), $yy)
         $g.DrawString($v[2], $FontUi, $cap, ($pw + 70), ($yy + 7))

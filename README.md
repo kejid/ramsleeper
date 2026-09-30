@@ -62,7 +62,7 @@ Claude desktop app itself: 1720 MB in 14 processes (never touched).
 
 ### The Windows tray icon
 
-The number on the icon is how many sessions have been waiting for your message for 3 minutes or more, which are the ones worth unloading. The threshold can be set to 3, 5, 10, 15, 30, or 60 minutes on the setup page. The color shows how much of your RAM all sessions hold: green below 15 %, amber below 30 %, red above. Hover over the icon for the exact figures, or click it for the list:
+The number on the icon is how many sessions have been waiting for your message for 3 minutes or more, which are the ones worth unloading. The threshold can be set to 3, 5, 10, 15, 30, or 60 minutes on the setup page. The color shows what share of the computer's total RAM all sessions hold: by default green below 15 %, amber below 30 %, and red above. The setup page lets you move both cut-offs and shows what they mean in gigabytes on your machine. Hover over the icon for the exact figures, or click it for the list:
 
 ![Tray popup with the session list, and the tray icon in green, amber, and red](docs/images/tray-popup.png)
 
@@ -190,7 +190,7 @@ RAM Sleeper runs locally and sends nothing over the network. It reads these:
 
 It writes these:
 
-- The idle threshold you choose on the setup page is saved in `settings.json`, under `%LOCALAPPDATA%\ramsleeper\` on Windows and `~/.config/ramsleeper/` elsewhere. The `RAMSLEEPER_IDLE_MINUTES` environment variable overrides it.
+- The idle threshold and the icon color cut-offs you choose on the setup page are saved in `settings.json`, under `%LOCALAPPDATA%\ramsleeper\` on Windows and `~/.config/ramsleeper/` elsewhere. The `RAMSLEEPER_IDLE_MINUTES` environment variable overrides it.
 - The Windows tray records its process ID in `%LOCALAPPDATA%\ramsleeper\tray.pid`.
 - Turning on start at sign-in adds a `RAM Sleeper` shortcut to your Startup folder and a small launcher, `%LOCALAPPDATA%\ramsleeper\start-tray.ps1`, that starts the newest installed version. Turning it off removes both.
 

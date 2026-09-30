@@ -79,6 +79,13 @@
   .seg { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
   .seg button { padding: 4px 12px; font-size: 13px; }
   .seg button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .bands { display: flex; height: 26px; border-radius: 8px; overflow: hidden; margin: 10px 0 6px; font-size: 12px; font-weight: 600; }
+  .bands span { display: flex; align-items: center; justify-content: center; white-space: nowrap; overflow: hidden; color: #fff; }
+  .b-ok { background: #2ea043; } .b-warn { background: #d28c14; } .b-high { background: #c8322d; }
+  .lvl-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; font-size: 14px; }
+  .lvl-row > span:first-child { min-width: 90px; color: var(--muted); }
+  .lvl-row .seg { margin-top: 0; }
+  .lvl-row .gb { color: var(--muted); font-size: 13px; }
   .faq details { border-bottom: 1px solid var(--line); padding: 12px 16px; }
   .faq details:last-child { border-bottom: 0; }
   .faq summary { cursor: pointer; font-weight: 600; }
@@ -172,6 +179,8 @@ Object.assign(T, RU ? {
   autoTitle: 'Запуск при входе в Windows', autoOn: 'Включён: значок появится сам после перезагрузки.', autoOff: 'Выключен.',
   autoEnable: 'Включить', autoDisable: 'Выключить',
   idleTitle: 'Когда сессия считается ждущей', min_: 'мин',
+  levelsTitle: 'Цвет значка', green: 'зелёный', amberFrom: 'Жёлтый с', redFrom: 'Красный с',
+  levelsHint: total => `Цвет показывает, какую долю всей памяти компьютера (${total}) занимают сессии Claude Code вместе.`,
   idleHint: m => `Сессия, которая ждёт вашего сообщения ${m}+ мин, попадает в цифру на значке трея и в строку меню: её можно выгрузить.`,
   idleEnv: 'Сейчас значение задано переменной RAMSLEEPER_IDLE_MINUTES и здесь не меняется.',
   menuTitle: 'Строка меню', menuHint: 'Установите одно из приложений и выполните команду в терминале.',
@@ -199,6 +208,8 @@ Object.assign(T, RU ? {
   autoTitle: 'Start at Windows sign-in', autoOn: 'On: the icon comes back by itself after a restart.', autoOff: 'Off.',
   autoEnable: 'Turn on', autoDisable: 'Turn off',
   idleTitle: 'When a session counts as idle', min_: 'min',
+  levelsTitle: 'Icon color', green: 'green', amberFrom: 'Amber from', redFrom: 'Red from',
+  levelsHint: total => `The color shows how much of this computer's total memory (${total}) all Claude Code sessions hold together.`,
   idleHint: m => `A session that has waited for your message for ${m}+ minutes is counted on the tray icon and in the menu bar as ready to unload.`,
   idleEnv: 'The RAMSLEEPER_IDLE_MINUTES environment variable sets this now, so it can’t be changed here.',
   menuTitle: 'Menu bar', menuHint: 'Install one of these apps, then run the command in a terminal.',
@@ -357,6 +368,25 @@ function renderSetup() {
   if (s.idle) {
     const pick = s.idle.choices.map(m => `<button data-act="idle-${m}" class="${m === s.idle.minutes ? 'on' : ''}" aria-pressed="${m === s.idle.minutes}" ${s.idle.fromEnv ? 'disabled' : ''}>${m} ${T.min_}</button>`).join('');
     html += step(null, T.idleTitle, `<p>${esc(T.idleHint(s.idle.minutes))}</p>${s.idle.fromEnv ? `<p>${esc(T.idleEnv)}</p>` : ''}<div class="seg">${pick}</div>`);
+  }
+  if (s.levels) {
+    const { warnPct: w, highPct: h, warnChoices, highChoices, systemMemBytes: ram } = s.levels;
+    const gb = p => `${(ram * p / 100 / 1073741824).toFixed(1)} ${RU ? 'ГБ' : 'GB'}`;
+    // A new amber value keeps red if it is still above it, otherwise takes the next red option.
+    const warnBtns = warnChoices.map(p => {
+      const hh = h > p ? h : highChoices.find(x => x > p);
+      return `<button data-act="levels-${p}-${hh}" class="${p === w ? 'on' : ''}" aria-pressed="${p === w}">${p}%</button>`;
+    }).join('');
+    const highBtns = highChoices.map(p =>
+      `<button data-act="levels-${w}-${p}" class="${p === h ? 'on' : ''}" aria-pressed="${p === h}" ${p <= w ? 'disabled' : ''}>${p}%</button>`).join('');
+    html += step(null, T.levelsTitle, `<p>${esc(T.levelsHint(gb(100)))}</p>
+      <div class="bands" aria-hidden="true">
+        <span class="b-ok" style="flex:${w}">${T.green} &lt; ${w}%</span>
+        <span class="b-warn" style="flex:${h - w}">${w}–${h}%</span>
+        <span class="b-high" style="flex:${Math.max(100 - h, 15)}">${h}%+</span>
+      </div>
+      <div class="lvl-row"><span>${T.amberFrom}</span><div class="seg">${warnBtns}</div><span class="gb">≈ ${gb(w)}</span></div>
+      <div class="lvl-row"><span>${T.redFrom}</span><div class="seg">${highBtns}</div><span class="gb">≈ ${gb(h)}</span></div>`);
   }
   if (s.menubar && s.menubar.length) {
     const any = s.menubar.some(a => a.installed);

@@ -224,6 +224,17 @@ function writeSettings(patch) {
 // How long a session must wait for input before the tray and menu bar count it
 // as worth unloading. Set on the setup page; RAMSLEEPER_IDLE_MINUTES overrides it.
 const IDLE_CHOICES = [3, 5, 10, 15, 30, 60];
+// Color bands for the tray icon and menu bar, as a share of the machine's RAM
+// held by all sessions: green below warn, amber from warn, red from high.
+const WARN_CHOICES = [10, 15, 20, 25];
+const HIGH_CHOICES = [20, 30, 40, 50];
+function levels() {
+  const s = readSettings();
+  const warn = WARN_CHOICES.includes(s.warnPct) ? s.warnPct : 15;
+  const high = HIGH_CHOICES.includes(s.highPct) && s.highPct > warn ? s.highPct : Math.max(30, HIGH_CHOICES.find(h => h > warn));
+  return { warnPct: warn, highPct: high };
+}
+
 function idleMinutes() {
   const env = parseInt(process.env.RAMSLEEPER_IDLE_MINUTES, 10);
   if (env > 0) return env;
@@ -262,7 +273,7 @@ function demoData() {
   ];
   sessions.sort((a, b) => b.memBytes - a.memBytes).forEach((s, i) => { s.n = i + 1; });
   return { sessions, app: { pid: 4000, memBytes: 1720 * MB, processCount: 14 }, platform: process.platform,
-    systemMemBytes: 32 * 1024 * MB, memMetric: IS_WIN ? 'private working set' : 'RSS', idleMinutes: idleMinutes(), demo: true };
+    systemMemBytes: 32 * 1024 * MB, memMetric: IS_WIN ? 'private working set' : 'RSS', idleMinutes: idleMinutes(), levels: levels(), demo: true };
 }
 
 function collect() {
@@ -323,7 +334,7 @@ function collect() {
     const helpers = (idx.get(h.pid) || []).filter(c => !sessionPids.has(c.pid) && /claude/i.test(c.name));
     app = { pid: h.pid, memBytes: h.mem + helpers.reduce((s, c) => s + c.mem, 0), processCount: 1 + helpers.length };
   }
-  return { sessions, app, platform: process.platform, systemMemBytes: os.totalmem(), memMetric: IS_WIN ? 'private working set' : 'RSS', idleMinutes: idleMinutes() };
+  return { sessions, app, platform: process.platform, systemMemBytes: os.totalmem(), memMetric: IS_WIN ? 'private working set' : 'RSS', idleMinutes: idleMinutes(), levels: levels() };
 }
 
 // A child process the user might not expect to lose, so confirmations call it
@@ -682,7 +693,8 @@ function xbarOutput(data) {
   const { sessions, app, systemMemBytes } = data;
   const total = sessions.reduce((t, s) => t + s.memBytes, 0);
   const share = systemMemBytes ? total / systemMemBytes : 0;
-  const color = share >= 0.30 ? ' color=#d0433a' : share >= 0.15 ? ' color=#d28c14' : '';
+  const { warnPct, highPct } = data.levels || levels();
+  const color = share * 100 >= highPct ? ' color=#d0433a' : share * 100 >= warnPct ? ' color=#d28c14' : '';
   // Sessions idle for a few minutes are the ones worth unloading; the Windows tray counts them the same way.
   const sleepy = sessions.filter(s => s.status === 'idle' && !s.current && s.lastActivityAt && Date.now() - s.lastActivityAt >= data.idleMinutes * 60000).length;
   const lines = [`${sleepy ? `${sleepy} ${L.idle} · ` : ''}${size(total)} | sfimage=memorychip${color}`, '---',
@@ -803,6 +815,7 @@ function setupStatus() {
     node: { version: process.version, ok: major >= 18 },
     tray: IS_WIN ? trayState() : null,
     idle: { minutes: idleMinutes(), choices: IDLE_CHOICES, fromEnv: parseInt(process.env.RAMSLEEPER_IDLE_MINUTES, 10) > 0 },
+    levels: { ...levels(), warnChoices: WARN_CHOICES, highChoices: HIGH_CHOICES, systemMemBytes: os.totalmem() },
     menubar: IS_WIN ? null : menubarApps(),
   };
 }
@@ -890,6 +903,13 @@ async function serve({ port = 0, open = true, asTab = false, keep = false, page 
       if (req.method === 'POST' && url.pathname === '/api/setup/tray' && IS_WIN) {
         startTray();
         return send(res, 200, { ok: true });
+      }
+      if (req.method === 'POST' && url.pathname.startsWith('/api/setup/levels-')) {
+        const [warn, high] = url.pathname.slice('/api/setup/levels-'.length).split('-').map(Number);
+        if (!WARN_CHOICES.includes(warn) || !HIGH_CHOICES.includes(high) || high <= warn) return send(res, 400, { ok: false, error: 'unsupported values' });
+        writeSettings({ warnPct: warn, highPct: high });
+        cache = null;
+        return send(res, 200, { ok: true, warnPct: warn, highPct: high });
       }
       if (req.method === 'POST' && url.pathname.startsWith('/api/setup/idle-')) {
         const minutes = parseInt(url.pathname.slice('/api/setup/idle-'.length), 10);
