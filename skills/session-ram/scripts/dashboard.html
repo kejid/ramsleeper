@@ -158,6 +158,7 @@ const T = RU ? {
 };
 Object.assign(T, RU ? {
   tabSessions: 'Сессии', tabSetup: 'Настройка', faqTitle: 'Частые вопросы',
+  interruptBtn: 'Прервать и выгрузить', busyWarn: 'Сессия сейчас работает: текущий ход оборвётся. Переписка до него сохранится.',
   nodeTitle: 'Node.js', nodeOk: v => `Установлен ${v}.`, nodeOld: v => `Установлен ${v}, нужен 18 или новее.`,
   cmdTitle: 'Команды в Claude Code',
   cmdHint: 'Или просто спросите Claude: «какая сессия ест больше всего памяти?», «выгрузи те, что простаивают с утра».',
@@ -172,7 +173,7 @@ Object.assign(T, RU ? {
   faq: [
     ['Потеряется ли переписка?', 'Нет. Выгрузка останавливает только процессы. Транскрипт сессии в ~/.claude/projects не трогается, и при следующем сообщении приложение запускает сессию из него с той же перепиской.'],
     ['Что будет с dev-сервером или базой, запущенными из сессии?', 'Они остановятся вместе с сессией: это её дочерние процессы. В окне подтверждения они выделены отдельно, чтобы это не стало сюрпризом.'],
-    ['Почему нельзя выгрузить сессию со статусом «работает»?', 'Прервётся ход, который идёт прямо сейчас. Дождитесь, пока сессия перейдёт в «ждёт».'],
+    ['Можно ли выгрузить сессию со статусом «работает»?', 'Да, кнопкой «Прервать и выгрузить» после отдельного предупреждения. Ход, который идёт прямо сейчас, оборвётся; всё до него сохранится. Это выход для зависших сессий.'],
     ['Почему цифры не совпадают с Диспетчером задач?', 'Здесь считается частный рабочий набор всего дерева процессов сессии, как колонка «Память» на вкладке «Подробности». На вкладке «Процессы» Windows группирует процессы иначе. На macOS и Linux показывается RSS, где общая память учитывается несколько раз.'],
     ['Отправляет ли плагин что-то в сеть?', 'Нет. Всё читается с этого компьютера. Панель слушает только 127.0.0.1 и требует одноразовый токен из ссылки.'],
     ['Сколько стоит держать плагин установленным?', 'Фоновых процессов у плагина нет. В каждую сессию, где он включён, добавляется около 200 токенов описаний команд. Значок в трее — один процесс примерно на 60 МБ.'],
@@ -180,6 +181,7 @@ Object.assign(T, RU ? {
   ],
 } : {
   tabSessions: 'Sessions', tabSetup: 'Setup', faqTitle: 'Questions',
+  interruptBtn: 'Interrupt and unload', busyWarn: 'This session is working: the running turn will be cut off. The conversation up to it is kept.',
   nodeTitle: 'Node.js', nodeOk: v => `${v} is installed.`, nodeOld: v => `${v} is installed; version 18 or newer is needed.`,
   cmdTitle: 'Commands in Claude Code',
   cmdHint: 'Or just ask Claude, for example "which session uses the most memory?" or "unload the ones idle since this morning".',
@@ -194,7 +196,7 @@ Object.assign(T, RU ? {
   faq: [
     ['Do I lose the conversation?', 'No. Unloading stops processes only. The session transcript in ~/.claude/projects is not touched, and on the next message the app starts the session from it with the same conversation.'],
     ['What happens to a dev server or database started from a session?', 'It stops with the session, because it is one of its child processes. The confirmation lists such processes separately so it is not a surprise.'],
-    ['Why can’t I unload a busy session?', 'The turn that is running would be cut off. Wait until the session is idle.'],
+    ['Can I unload a busy session?', 'Yes, with Interrupt and unload, after a separate warning. The turn that is running is cut off; everything before it is kept. It is the way out for a stuck session.'],
     ['Why don’t the numbers match Task Manager?', 'This counts the private working set of the session’s whole process tree, like the Memory column on the Details tab. The Processes tab groups processes differently. On macOS and Linux it shows RSS, which counts shared memory more than once.'],
     ['Does the plugin send anything over the network?', 'No. Everything is read on this computer. The dashboard listens on 127.0.0.1 only and needs the one-time token in its link.'],
     ['What does keeping the plugin installed cost?', 'The plugin has no background processes. Each session where it is enabled gets about 200 tokens of command descriptions. The tray icon is one process of about 60 MB.'],
@@ -212,10 +214,9 @@ const ago = ms => {
   const s = (Date.now() - ms) / 1000;
   return s < 90 ? T.just : s < 5400 ? T.min(Math.round(s / 60)) : s < 129600 ? T.hr(Math.round(s / 3600)) : T.day(Math.round(s / 86400));
 };
-// Child processes a user would not expect to lose: anything that is not an MCP
-// server, a shell, or console plumbing.
-const PLUMBING = /^(conhost|cmd|powershell|pwsh|bash|sh|zsh|uv|uvx|npx|npm|node|python\d?|mcp[-\w]*)(\.exe)?$/i;
-const isFlagged = c => !/mcp/i.test(c.cmd) && !(PLUMBING.test(c.name) && (/mcp/i.test(c.cmd) || c.cmd === '' || /^0x/.test(c.cmd)));
+// The script marks children a user would not expect to lose (dev servers,
+// databases, browsers); MCP servers and their shells are routine.
+const isFlagged = c => c.notable;
 
 let data = null, lastOk = 0, pending = null;
 
@@ -253,14 +254,14 @@ function render() {
   $('list').innerHTML = `<table>
     <thead><tr><th>${T.session}</th><th>${T.ram}</th><th class="hide-sm">${T.procs}</th><th>${T.status}</th><th class="hide-sm">${T.last}</th><th></th></tr></thead>
     <tbody>${sessions.map(s => {
-      const why = s.current ? T.whyCurrent : s.status === 'busy' ? T.whyBusy : '';
+      const why = s.current ? T.whyCurrent : '';
       return `<tr>
         <td><div class="title">${esc(s.title)}${s.current ? `<span class="you">${T.you}</span>` : ''}</div><div class="cwd">${esc(s.cwd)}</div></td>
         <td class="num ram">${mb(s.memBytes)}<div class="bar"><i style="width:${Math.max(2, s.memBytes / max * 100)}%"></i></div></td>
         <td class="num hide-sm">${s.processCount}</td>
         <td><span class="pill ${s.status === 'busy' ? 'busy' : 'idle'}">${esc(T[s.status] || s.status)}</span></td>
         <td class="num hide-sm">${ago(s.lastActivityAt)}</td>
-        <td><button data-pid="${s.pid}" ${why ? `disabled title="${esc(why)}"` : ''}>${T.unload}</button></td>
+        <td><button data-pid="${s.pid}" ${why ? `disabled title="${esc(why)}"` : ''}>${s.status === 'busy' ? T.interruptBtn : T.unload}</button></td>
       </tr>`;
     }).join('')}</tbody></table>`;
   tick();
@@ -285,6 +286,8 @@ $('list').addEventListener('click', e => {
     </ul>
     ${flagged.length ? `<p class="flag">${T.flagged} ${flagged.map(c => esc(c.cmd || c.name)).join(', ')}</p>` : ''}
     <div class="note">${T.keep}<br>${resume}</div>`;
+  if (s.status === 'busy') $('c-body').insertAdjacentHTML('afterbegin', `<p class="flag">${T.busyWarn}</p>`);
+  $('c-ok').textContent = s.status === 'busy' ? T.interruptBtn : T.unload;
   $('c-ok').disabled = false;
   $('confirm').showModal();
 });
@@ -294,7 +297,7 @@ $('c-ok').onclick = async () => {
   const s = pending;
   $('c-ok').disabled = true;
   try {
-    const r = await api('/api/unload', { method: 'POST', body: JSON.stringify({ pid: s.pid, sessionId: s.sessionId }) });
+    const r = await api('/api/unload', { method: 'POST', body: JSON.stringify({ pid: s.pid, sessionId: s.sessionId, force: s.status === 'busy' }) });
     toast(r.ok ? T.done(s.title, mb(r.freedBytes)) : T.failed(r.error));
   } catch (e) { toast(T.failed(e.message)); }
   $('confirm').close();

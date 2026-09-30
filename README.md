@@ -22,9 +22,9 @@ To continue an unloaded session:
 ### Safety rules
 
 - The session you are talking to is never unloaded, and neither is the Claude desktop app itself.
-- Busy sessions, where a turn is running, are refused, because the running turn would be lost.
+- A busy session, one with a turn running, is only stopped through a separate Interrupt and unload action with its own warning. The running turn is cut off; the conversation up to it is kept. This is the way out for a stuck session.
 - A session without a transcript on disk is refused, because it could not be resumed.
-- Before stopping a process, the plugin checks that its PID still belongs to the same session. PIDs are reused, and Windows reuses them quickly.
+- Before stopping a process, the plugin checks that its PID still belongs to the same session, by process start time and by the session ID you confirmed. PIDs are reused, and Windows reuses them quickly.
 - Everything the session started stops with it. That includes MCP servers and shells, and also dev servers or databases you launched from that session. The confirmation lists these separately.
 
 ## Always visible: tray and menu bar
@@ -62,7 +62,7 @@ To try it without installing, run `claude --plugin-dir <path to this repository>
 
 Every running Claude Code process writes a small file to `~/.claude/sessions/<pid>.json`. The file holds its session ID, working folder, status, and start time. The plugin reads these files and then reads the operating system's process table to find each session's child processes and their memory. On Windows the figure is the private working set, which is the Memory column in Task Manager. On macOS and Linux it is RSS, which counts shared memory more than once. Session titles come from the Claude desktop app's local session files and, for terminal sessions, from the first prompt in the transcript under `~/.claude/projects/`.
 
-Unloading stops the session's process tree: `taskkill /T /F` on Windows, SIGTERM and then SIGKILL on macOS and Linux. The transcript is never touched.
+Unloading stops exactly the processes listed in the confirmation: `taskkill /F` on Windows, SIGTERM and then SIGKILL on macOS and Linux. The transcript is never touched; the session's stale file in `~/.claude/sessions` is removed, because a killed process cannot remove it itself.
 
 Tested on Windows 11 with the Claude desktop app and Claude Code 2.1: a session unloaded this way came back on its next message as a new process resuming the same session ID, and it still knew what it had been told before. The macOS and Linux code paths (process table, menu bar output, dialogs) are written to the same rules, but they have not been run on those systems yet. Reports are welcome.
 

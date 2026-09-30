@@ -27,7 +27,7 @@ function Set-Autostart([bool]$on) {
     }
     New-Item -ItemType Directory -Force $StateDir | Out-Null
     $fallback = $PSCommandPath -replace "'", "''"
-    $cache = Join-Path $env:USERPROFILE '.claude\plugins\cache\session-ram\session-ram'
+    $cache = (Join-Path $env:USERPROFILE '.claude\plugins\cache\session-ram\session-ram') -replace "'", "''"
     @"
 # Written by Session RAM. Starts the newest installed tray script.
 `$tray = Get-ChildItem '$cache' -Directory -ErrorAction SilentlyContinue |
@@ -67,7 +67,9 @@ if (-not $Node) {
 
 $RU = (Get-UICulture).TwoLetterISOLanguageName -eq 'ru'
 $T = if ($RU) { @{
-    title = 'Сессии Claude Code'; unload = 'Выгрузить'; busy = 'работает'; idle = 'ждёт'; mb = 'МБ'; gb = 'ГБ'
+    title = 'Сессии Claude Code'; unload = 'Выгрузить'; interrupt = 'Прервать'
+    busyWarn = 'Сессия сейчас работает: текущий ход оборвётся. Переписка до него сохранится.'
+    busy = 'работает'; idle = 'ждёт'; mb = 'МБ'; gb = 'ГБ'
     refresh = 'Обновить'; dashboard = 'Открыть панель'; autostart = 'Запускать при входе в Windows'; exit = 'Выход'
     none = 'Запущенных сессий нет'; loading = 'Загрузка…'; updated = 'обновлено'; app = 'приложение Claude'
     confirmTitle = 'Выгрузить сессию?'; frees = 'Освободится около {0} ({1} процессов).'
@@ -75,7 +77,9 @@ $T = if ($RU) { @{
     resume = 'Чтобы продолжить: откройте сессию в боковой панели приложения Claude и отправьте сообщение.'
     done = 'Выгружено: {0}, освобождено ~{1}'; failed = 'Не удалось: {0}'; procs = 'проц.'
 } } else { @{
-    title = 'Claude Code sessions'; unload = 'Unload'; busy = 'busy'; idle = 'idle'; mb = 'MB'; gb = 'GB'
+    title = 'Claude Code sessions'; unload = 'Unload'; interrupt = 'Interrupt'
+    busyWarn = 'This session is working: the running turn will be cut off. The conversation up to it is kept.'
+    busy = 'busy'; idle = 'idle'; mb = 'MB'; gb = 'GB'
     refresh = 'Refresh'; dashboard = 'Open dashboard'; autostart = 'Start at Windows sign-in'; exit = 'Exit'
     none = 'No running sessions'; loading = 'Loading…'; updated = 'updated'; app = 'Claude app'
     confirmTitle = 'Unload this session?'; frees = 'Frees about {0} ({1} processes).'
@@ -234,8 +238,9 @@ function Build-Popup {
             $bar.BackColor = $C.bar
             $bar.SetBounds($pad, $y + 44, [Math]::Max(4, [int](($w - 2 * $pad - 100) * $s.memBytes / $max)), 4)
             $popup.Controls.Add($bar)
-            if ($s.status -ne 'busy' -and -not $s.current) {
-                $b = Add-Button $popup $T.unload ($w - $pad - 90) ($y + 10) 90 { Confirm-Unload ([int]$this.Tag) }
+            if (-not $s.current) {
+                $label = if ($s.status -eq 'busy') { $T.interrupt } else { $T.unload }
+                $b = Add-Button $popup $label ($w - $pad - 90) ($y + 10) 90 { Confirm-Unload ([int]$this.Tag) }
                 $b.Tag = [int]$s.pid
             }
             $y += 56
@@ -247,7 +252,9 @@ function Build-Popup {
     $y += 10
     $foot = if ($script:updatedAt) { '{0} {1:HH:mm:ss}' -f $T.updated, $script:updatedAt } else { '' }
     if ($script:data -and $script:data.app) { $foot = '{0} {1} · {2}' -f $T.app, (Format-Size $script:data.app.memBytes), $foot }
-    Add-Label $popup $foot $FontUi $C.muted $pad ($y + 3) 200 | Out-Null
+    # Own row at full width: next to the buttons the text did not fit.
+    Add-Label $popup $foot $FontUi $C.muted $pad $y ($w - 2 * $pad) | Out-Null
+    $y += 26
     Add-Button $popup $T.refresh ($w - $pad - 214) $y 90 { Start-Refresh } | Out-Null
     Add-Button $popup $T.dashboard ($w - $pad - 118) $y 118 { Open-Dashboard } | Out-Null
     $y += 38
@@ -324,8 +331,11 @@ $timer.Start()
 function Confirm-Unload([int]$sessionPid) {
     $s = @($script:data.sessions) | Where-Object { $_.pid -eq $sessionPid } | Select-Object -First 1
     if (-not $s) { return }
-    $lines = @($s.title, '', ($T.frees -f (Format-Size $s.memBytes), $s.processCount))
-    $flagged = @($s.children | Where-Object { $_.cmd -notmatch 'mcp' -and $_.name -notmatch '^(conhost|cmd|powershell|pwsh|bash|uv|uvx|npx|npm|node|python\d?)(\.exe)?$' })
+    $busy = $s.status -eq 'busy'
+    $lines = @($s.title, '')
+    if ($busy) { $lines += $T.busyWarn; $lines += '' }
+    $lines += ($T.frees -f (Format-Size $s.memBytes), $s.processCount)
+    $flagged = @($s.children | Where-Object { $_.notable })
     if ($flagged.Count) { $lines += ''; $lines += $T.flagged; $lines += ($flagged | ForEach-Object { '  ' + ($(if ($_.cmd) { $_.cmd } else { $_.name })) }) }
     $lines += ''; $lines += $T.keep; $lines += $T.resume
     $popup.TopMost = $false
@@ -333,7 +343,10 @@ function Confirm-Unload([int]$sessionPid) {
     $popup.TopMost = $true
     if ($answer -ne 'Yes') { return }
     # Same checks as the plugin: the script refuses busy sessions and re-verifies the PID.
-    $result = Invoke-Sessions @('unload', $s.pid, '--yes', '--json') | ConvertFrom-Json
+    # --expect binds the unload to the session that was shown, in case its PID changed hands.
+    $argv = @('unload', $s.pid, "--expect=$($s.sessionId)", '--yes', '--json')
+    if ($busy) { $argv += '--force' }
+    $result = Invoke-Sessions $argv | ConvertFrom-Json
     if ($result.ok) {
         $tray.ShowBalloonTip(5000, 'Session RAM', ($T.done -f $s.title, (Format-Size $result.freedBytes)), 'Info')
     } else {

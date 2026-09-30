@@ -10,7 +10,7 @@
 //
 // Usage:
 //   node sessions.mjs list [--json]
-//   node sessions.mjs unload <pid|session-id-prefix> [--yes] [--force] [--json]
+//   node sessions.mjs unload <pid|session-id-prefix> [--expect=<session-id>] [--yes] [--force] [--json]
 //   node sessions.mjs widget [--lang=en|ru]           HTML snapshot for inline chat widgets
 //   node sessions.mjs xbar                            menu for xbar/SwiftBar (macOS), Argos/Kargos (Linux)
 //   node sessions.mjs confirm-unload <pid>            native confirm dialog, then unload
@@ -61,12 +61,16 @@ function readProcesses() {
       procs.set(r.p, { pid: r.p, ppid: r.pp, name: r.n || '', cmd: r.c || '', mem: Number(r.m) || 0, start: r.s });
     }
   } else {
-    const out = execFileSync('ps', ['-axo', 'pid=,ppid=,rss=,args='], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    // lstart is a fixed five-field date ("Wed Sep 30 13:22:01 2026") in the C locale.
+    const out = execFileSync('ps', ['-axo', 'pid=,ppid=,rss=,lstart=,args='],
+      { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: { ...process.env, LC_ALL: 'C' } });
     for (const line of out.split('\n')) {
-      const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/);
+      const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\w{3}\s+\w{3}\s+\d+\s+[\d:]{8}\s+\d{4})\s+(.*)$/);
       if (!m) continue;
-      const cmd = m[4].slice(0, 400);
-      procs.set(+m[1], { pid: +m[1], ppid: +m[2], name: path.basename(cmd.split(' ')[0]), cmd, mem: +m[3] * 1024, start: null });
+      const cmd = m[5].slice(0, 400);
+      const startMs = Date.parse(m[4].replace(/\s+/g, ' '));
+      procs.set(+m[1], { pid: +m[1], ppid: +m[2], name: path.basename(cmd.split(' ')[0]), cmd, mem: +m[3] * 1024,
+        start: null, startMs: Number.isNaN(startMs) ? null : startMs });
     }
   }
   return procs;
@@ -115,19 +119,25 @@ function ancestors(pid, procs) {
   return chain;
 }
 
-// procStart in the pid file vs the live process: guards against a stale pid
-// file whose PID now belongs to some other program. FILETIME strings may lose
-// a few digits of precision, so allow one second of slack.
+// Start time in the pid file vs the live process: guards against a stale pid
+// file (left by a crash or by our own unload) whose PID now belongs to another
+// program, including other claude-named processes such as the desktop app's
+// helpers. Without a start time to compare, the file is not trusted.
 function sameProcess(info, proc) {
   if (!proc) return false;
   if (!/claude/i.test(proc.name) && !/claude/i.test(proc.cmd)) return false;
-  if (IS_WIN && info.procStart && proc.start) {
+  if (IS_WIN) {
+    if (!info.procStart || !proc.start) return false;
     try {
+      // FILETIME strings may lose a few digits of precision: allow one second.
       const diff = BigInt(info.procStart) - BigInt(proc.start);
       return (diff < 0n ? -diff : diff) < 10_000_000n;
-    } catch { /* fall through */ }
+    } catch { return false; }
   }
-  return true;
+  if (!info.startedAt || !proc.startMs) return false;
+  // ps reports whole seconds, and Claude Code writes startedAt shortly after it starts.
+  const lag = info.startedAt - proc.startMs;
+  return lag > -2000 && lag < 120000;
 }
 
 // ---------------------------------------------------------------- metadata
@@ -230,7 +240,7 @@ function collect() {
       memBytes: proc.mem + kids.reduce((s, k) => s + k.mem, 0),
       ownMemBytes: proc.mem,
       processCount: 1 + kids.length,
-      children: kids.map(k => ({ pid: k.pid, name: k.name, memBytes: k.mem, cmd: shortCmd(k.cmd) })),
+      children: kids.map(k => ({ pid: k.pid, name: k.name, memBytes: k.mem, cmd: shortCmd(k.cmd), notable: isNotable(k) })),
       current: myChain.has(info.pid),
     });
   }
@@ -248,6 +258,17 @@ function collect() {
     app = { pid: h.pid, memBytes: h.mem + helpers.reduce((s, c) => s + c.mem, 0), processCount: 1 + helpers.length };
   }
   return { sessions, app, platform: process.platform, systemMemBytes: os.totalmem(), memMetric: IS_WIN ? 'private working set' : 'RSS' };
+}
+
+// A child process the user might not expect to lose, so confirmations call it
+// out: dev servers, databases, browsers, anything unfamiliar. MCP servers and
+// the shells and launchers that host them are routine and stay unmarked.
+const MCP_RE = /mcp|modelcontextprotocol/i;
+const DEV_RE = /\b(vite|next|nuxt|astro|remix|webpack|parcel|esbuild|nodemon|tsx|ts-node|jest|vitest|postgres|mysqld|mongod|redis-server|docker|uvicorn|gunicorn|flask|django|rails|php|java)\b/i;
+const PLUMBING_RE = /^(conhost|cmd|powershell|pwsh|bash|sh|zsh|fish|uv|uvx|npx|npm|pnpm|yarn|node|bun|deno|git|python\d?(\.\d+)?)(\.exe)?$/i;
+function isNotable(p) {
+  if (DEV_RE.test(p.cmd)) return true;
+  return !MCP_RE.test(p.cmd) && !PLUMBING_RE.test(p.name);
 }
 
 function shortCmd(cmd) {
@@ -287,12 +308,13 @@ function printList(data) {
 
 // ---------------------------------------------------------------- unload
 
+// A number is only ever a PID, never a row number or an ID prefix, and an ID
+// prefix must be long enough that it cannot match by accident.
+const MIN_PREFIX = 6;
 function resolve(sessions, target) {
-  if (/^\d+$/.test(target)) {
-    const byPid = sessions.find(s => s.pid === Number(target));
-    if (byPid) return byPid;
-  }
+  if (/^\d+$/.test(target)) return sessions.find(s => s.pid === Number(target)) || null;
   const t = target.toLowerCase().replace(/^local_/, '');
+  if (t.length < MIN_PREFIX) throw new Error(`"${target}" is too short; give the PID or at least ${MIN_PREFIX} characters of the session ID.`);
   const hits = sessions.filter(s =>
     (s.sessionId && s.sessionId.startsWith(t)) ||
     (s.hostSessionId && s.hostSessionId.replace(/^local_/, '').startsWith(t)));
@@ -306,17 +328,19 @@ function alive(pid) {
   try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
 }
 
+// Stops exactly the processes shown in the plan: the session first, so it
+// cannot start replacements, then its children. taskkill /T is not used
+// because it follows parent PIDs blindly and would also reach unrelated
+// orphans whose dead parent's PID was reused inside this tree.
 function killTree(s) {
   if (IS_WIN) {
-    // /T takes the whole tree (MCP servers, shells, dev servers started by the session).
-    try {
-      execFileSync('taskkill.exe', ['/PID', String(s.pid), '/T', '/F'], { encoding: 'utf8', windowsHide: true, stdio: 'pipe' });
-    } catch { /* some children may already be gone; verified below */ }
-    // Anything that escaped (re-parented or started mid-kill) goes one by one.
-    for (const c of s.children) {
-      if (alive(c.pid)) {
-        try { execFileSync('taskkill.exe', ['/PID', String(c.pid), '/F'], { stdio: 'pipe', windowsHide: true }); } catch { /* gone */ }
-      }
+    const pids = [s.pid, ...s.children.map(c => c.pid)];
+    // taskkill accepts many /PID arguments; stay well under the command-line limit.
+    for (let i = 0; i < pids.length; i += 50) {
+      const batch = pids.slice(i, i + 50).flatMap(p => ['/PID', String(p)]);
+      try {
+        execFileSync('taskkill.exe', ['/F', ...batch], { encoding: 'utf8', windowsHide: true, stdio: 'pipe' });
+      } catch { /* some may already be gone; verified below */ }
     }
   } else {
     const all = [s.pid, ...s.children.map(c => c.pid)];
@@ -338,7 +362,8 @@ function unloadSession(target, { yes = false, force = false, expectSessionId = n
   if (expectSessionId && s.sessionId !== expectSessionId) return refuse('the session list changed; refresh and try again.');
   if (s.current) return refuse('this is the session you are talking to right now; it cannot unload itself.');
   if (!s.transcript) return refuse('no transcript found for this session, so it could not be resumed after unloading.');
-  if (s.status === 'busy' && !force) return refuse('the session is busy (a turn is running). Wait until it is idle, or pass --force.');
+  // The preview always works, so a busy session can be shown with its warning.
+  if (yes && s.status === 'busy' && !force) return refuse('the session is busy (a turn is running). Wait until it is idle, or pass --force.');
 
   const plan = planFor(s);
   if (!yes) return { ok: true, dryRun: true, plan, session: s };
@@ -346,6 +371,12 @@ function unloadSession(target, { yes = false, force = false, expectSessionId = n
   killTree(s);
   const survivors = [s.pid, ...s.children.map(c => c.pid)].filter(alive);
   const ok = !alive(s.pid);
+  // A killed process cannot remove its own pid file; a stale one could later
+  // match a reused PID, so drop it (only if it still describes this session).
+  if (ok) {
+    const f = path.join(PID_DIR, `${s.pid}.json`);
+    if (readJson(f)?.sessionId === s.sessionId) { try { fs.unlinkSync(f); } catch { /* already gone */ } }
+  }
   return {
     ok, unloaded: ok, freedBytes: ok ? s.memBytes : 0, survivors, plan, session: s,
     ...(ok ? {} : { error: `could not stop PID ${s.pid}.` }),
@@ -363,8 +394,8 @@ function planFor(s) {
   };
 }
 
-function unloadCli(target, { yes, force, json }) {
-  const r = unloadSession(target, { yes, force });
+function unloadCli(target, { yes, force, json, expectSessionId }) {
+  const r = unloadSession(target, { yes, force, expectSessionId });
   const { session: s, plan } = r;
   delete r.session;
   if (json) { console.log(JSON.stringify(r, null, 2)); process.exit(r.ok ? 0 : 2); }
@@ -374,10 +405,12 @@ function unloadCli(target, { yes, force, json }) {
     console.log(`Would unload #${s.n} "${s.title}" (PID ${s.pid}, ${s.status})`);
     console.log(`  frees about ${mb(s.memBytes)} across ${s.processCount} processes:`);
     console.log(`    ${s.pid}  claude  ${mb(s.ownMemBytes)}`);
-    for (const c of s.children) console.log(`    ${c.pid}  ${pad(c.name, 12)} ${pad(mb(c.memBytes), 8)} ${c.cmd}`);
+    for (const c of s.children) console.log(`  ${c.notable ? '! ' : '  '}${c.pid}  ${pad(c.name, 12)} ${pad(mb(c.memBytes), 8)} ${c.cmd}`);
+    if (s.children.some(c => c.notable)) console.log('  ! = not an MCP server or shell; it stops too');
     console.log(`  transcript kept: ${s.transcript}`);
     console.log(`  to continue later: ${plan.resume}`);
-    console.log('\nRe-run with --yes to unload.');
+    if (s.status === 'busy') console.log('  BUSY: a turn is running and will be cut off; the conversation up to it is kept.');
+    console.log(`\nTo unload: unload ${s.pid} --expect=${s.sessionId} --yes${s.status === 'busy' ? ' --force' : ''}`);
     return;
   }
   if (r.ok) {
@@ -400,11 +433,13 @@ const WIDGET_TEXT = {
   en: { inSessions: 'In sessions', counts: 'Sessions / processes', app: 'Claude app itself', asOf: 'As of',
     refresh: 'Refresh', unload: 'Unload', idle: 'idle', busy: 'busy', current: 'this session', proc: 'proc.',
     mb: 'MB', gb: 'GB', none: 'No running Claude Code sessions.',
-    askRefresh: 'Refresh the session-ram list', askUnload: (t, pid) => `Unload the session "${t}" (PID ${pid}) with session-ram` },
+    interrupt: 'Interrupt', askRefresh: 'Refresh the session-ram list',
+    askUnload: (t, pid, busy) => `Unload the session "${t}" (PID ${pid}) with session-ram${busy ? '; it is busy, so interrupt its running turn' : ''}` },
   ru: { inSessions: 'В сессиях', counts: 'Сессий / процессов', app: 'Само приложение', asOf: 'На',
     refresh: 'Обновить', unload: 'Выгрузить', idle: 'ждёт', busy: 'работает', current: 'эта сессия', proc: 'проц.',
     mb: 'МБ', gb: 'ГБ', none: 'Запущенных сессий Claude Code нет.',
-    askRefresh: 'Обнови список сессий session-ram', askUnload: (t, pid) => `Выгрузи сессию «${t}» (PID ${pid}) через session-ram` },
+    interrupt: 'Прервать', askRefresh: 'Обнови список сессий session-ram',
+    askUnload: (t, pid, busy) => `Выгрузи сессию «${t}» (PID ${pid}) через session-ram${busy ? '; она работает — прерви текущий ход' : ''}` },
 };
 
 function widgetHtml(data, lang) {
@@ -418,12 +453,12 @@ function widgetHtml(data, lang) {
   const time = new Date().toLocaleTimeString(lang === 'ru' ? 'ru-RU' : 'en-US', { hour: '2-digit', minute: '2-digit' });
   const stat = (label, value) => `<div style="background:var(--surface-1);border-radius:var(--radius);padding:1rem"><div class="m">${label}</div><div style="font-size:24px;font-weight:500">${value}</div></div>`;
   // Prompts go through a JSON island so titles with quotes cannot break the script.
-  const prompts = { refresh: L.askRefresh, unload: Object.fromEntries(sessions.map(s => [s.pid, L.askUnload(s.title, s.pid)])) };
+  const prompts = { refresh: L.askRefresh, unload: Object.fromEntries(sessions.map(s => [s.pid, L.askUnload(s.title, s.pid, s.status === 'busy')])) };
 
   const rows = sessions.map(s => {
-    const action = s.current || s.status === 'busy'
-      ? `<span class="m">${s.current ? L.current : L.busy}</span>`
-      : `<button data-pid="${s.pid}">${L.unload} ↗</button>`;
+    const action = s.current
+      ? `<span class="m">${L.current}</span>`
+      : `<button data-pid="${s.pid}">${s.status === 'busy' ? L.interrupt : L.unload} ↗</button>`;
     return `<div class="row">
   <div style="min-width:0"><div class="t" title="${esc(s.title)}">${esc(s.title)}</div><div class="m">${esc(s.cwd)}</div></div>
   <div><div style="font-size:13px">${size(s.memBytes)} · ${s.processCount} ${L.proc}</div><div class="bar"><i style="width:${Math.max(2, Math.round(s.memBytes / max * 100))}%"></i></div></div>
@@ -475,9 +510,9 @@ function xbarOutput(data) {
   const ru = /^ru/i.test(process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || Intl.DateTimeFormat().resolvedOptions().locale || '');
   const L = ru
     ? { sessions: 'Сессии Claude Code', unload: 'Выгрузить…', busy: 'работает', idle: 'ждёт', app: 'Само приложение Claude',
-        dashboard: 'Открыть панель', refresh: 'Обновить', none: 'Запущенных сессий нет', gb: 'ГБ', mb: 'МБ', ram: 'RAM', procs: 'процессов' }
+        dashboard: 'Открыть панель', refresh: 'Обновить', none: 'Запущенных сессий нет', gb: 'ГБ', mb: 'МБ', ram: 'RAM', procs: 'процессов', interrupt: 'Прервать и выгрузить…' }
     : { sessions: 'Claude Code sessions', unload: 'Unload…', busy: 'busy', idle: 'idle', app: 'Claude app itself',
-        dashboard: 'Open dashboard', refresh: 'Refresh', none: 'No running sessions', gb: 'GB', mb: 'MB', ram: 'RAM', procs: 'processes' };
+        dashboard: 'Open dashboard', refresh: 'Refresh', none: 'No running sessions', gb: 'GB', mb: 'MB', ram: 'RAM', procs: 'processes', interrupt: 'Interrupt and unload…' };
   const size = b => b >= 1073741824 ? `${(b / 1073741824).toFixed(1)} ${L.gb}` : `${Math.round(b / 1048576)} ${L.mb}`;
   // "|" separates text from parameters in this format, and each item is one line.
   const clean = s => String(s ?? '').replace(/\|/g, '¦').replace(/[\r\n]+/g, ' ');
@@ -500,7 +535,9 @@ function xbarOutput(data) {
     lines.push(`${clean(s.title)} — ${size(s.memBytes)} · ${s.status === 'busy' ? L.busy : L.idle}`);
     lines.push(`--${clean(s.cwd)} | disabled=true`);
     lines.push(`--${s.processCount} ${L.procs}, PID ${s.pid} | disabled=true`);
-    if (!s.current && s.status !== 'busy') lines.push(`--${L.unload} | ${run('confirm-unload', String(s.pid))}`);
+    if (!s.current) lines.push(s.status === 'busy'
+      ? `--${L.interrupt} | ${run('confirm-unload', String(s.pid), '--force')}`
+      : `--${L.unload} | ${run('confirm-unload', String(s.pid))}`);
   }
   lines.push('---');
   if (app) lines.push(`${L.app}: ${size(app.memBytes)} | disabled=true`);
@@ -511,20 +548,21 @@ function xbarOutput(data) {
 
 // Native confirmation for menu bar clicks: osascript on macOS, zenity or
 // kdialog on Linux. Refusals and results are shown the same way.
-function confirmUnload(target) {
-  const preview = unloadSession(target);
+function confirmUnload(target, { force = false } = {}) {
+  const preview = unloadSession(target, { force });
   const s = preview.session;
   const say = (msg, isError) => nativeMessage(msg, isError);
   if (!preview.ok) { say(`Session RAM: ${preview.error}`, true); process.exit(2); }
 
   const lines = [
     `Unload "${s.title}"?`, '',
+    ...(s.status === 'busy' ? ['BUSY: the turn that is running now will be cut off. The conversation up to it is kept.', ''] : []),
     `Frees about ${mb(s.memBytes)} by stopping ${s.processCount} processes.`,
-    ...s.children.filter(c => !/mcp/i.test(c.cmd) && !/^(bash|sh|zsh|node|npm|npx|uv|uvx|python\d?)$/i.test(c.name)).map(c => `Also stops: ${c.cmd || c.name}`),
+    ...s.children.filter(c => c.notable).map(c => `Also stops: ${c.cmd || c.name}`),
     '', 'The conversation stays in its transcript.', `To continue: ${preview.plan.resume}`,
   ];
   if (!nativeConfirm(lines.join('\n'))) return;
-  const r = unloadSession(String(s.pid), { yes: true, expectSessionId: s.sessionId });
+  const r = unloadSession(String(s.pid), { yes: true, force, expectSessionId: s.sessionId });
   say(r.ok ? `Unloaded "${s.title}", ~${mb(r.freedBytes)} freed.` : `Session RAM: ${r.error}`, !r.ok);
 }
 
@@ -571,11 +609,21 @@ const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const TRAY_SCRIPT = path.join(PLUGIN_ROOT, 'companion', 'windows-tray', 'session-ram-tray.ps1');
 const MENUBAR_SCRIPT = path.join(PLUGIN_ROOT, 'companion', 'menubar', 'session-ram.30s.sh');
 
+// The tray's PID file survives a crash or sign-out, so a live PID alone is not
+// proof: it must still be a PowerShell process.
+function trayRunning(pid) {
+  if (!pid || !alive(pid)) return false;
+  try {
+    const out = execFileSync('tasklist.exe', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true });
+    return /^"powershell\.exe"/i.test(out.trim());
+  } catch { return false; }
+}
+
 function trayState() {
   const dir = path.join(process.env.LOCALAPPDATA || path.join(HOME, 'AppData', 'Local'), 'session-ram');
   const pid = Number((() => { try { return fs.readFileSync(path.join(dir, 'tray.pid'), 'utf8').trim(); } catch { return ''; } })());
   const startup = path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'Session RAM.lnk');
-  return { running: Boolean(pid) && alive(pid), autostart: fs.existsSync(startup) };
+  return { running: trayRunning(pid), autostart: fs.existsSync(startup) };
 }
 
 // Menu bar apps that read xbar-format plugins, with their usual plugin folders.
@@ -601,9 +649,12 @@ function setupStatus() {
   };
 }
 
+// Started through `cmd /c start`, whose cmd exits at once, so the tray is not a
+// child of this server. Otherwise, when the server runs inside a session, the
+// tray would count toward that session and die when it is unloaded.
 function startTray() {
-  spawn('powershell.exe', ['-NoProfile', '-STA', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', TRAY_SCRIPT],
-    { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  spawn('cmd.exe', ['/d /c start "" powershell.exe -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + TRAY_SCRIPT + '"'],
+    { detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true }).unref();
 }
 
 function setAutostart(on) {
@@ -691,9 +742,9 @@ async function serve({ port = 0, open = true, asTab = false, keep = false, page 
         req.on('data', c => { body += c; if (body.length > 10000) req.destroy(); });
         req.on('end', () => {
           try {
-            const { pid, sessionId } = JSON.parse(body || '{}');
+            const { pid, sessionId, force } = JSON.parse(body || '{}');
             if (!Number.isInteger(pid) || typeof sessionId !== 'string') return send(res, 400, { ok: false, error: 'pid and sessionId required' });
-            const r = unloadSession(String(pid), { yes: true, expectSessionId: sessionId });
+            const r = unloadSession(String(pid), { yes: true, force: force === true, expectSessionId: sessionId });
             delete r.session;
             cache = null;
             send(res, r.ok ? 200 : 409, r);
@@ -727,8 +778,10 @@ try {
     const data = collect();
     if (flags.has('--json')) console.log(JSON.stringify(data, null, 2)); else printList(data);
   } else if (cmd === 'unload') {
-    if (!pos[1]) throw new Error('usage: unload <pid|session-id-prefix> [--yes] [--force] [--json]');
-    unloadCli(pos[1], { yes: flags.has('--yes'), force: flags.has('--force'), json: flags.has('--json') });
+    if (!pos[1]) throw new Error('usage: unload <pid|session-id-prefix> [--expect=<session-id>] [--yes] [--force] [--json]');
+    const expect = args.find(a => a.startsWith('--expect='));
+    unloadCli(pos[1], { yes: flags.has('--yes'), force: flags.has('--force'), json: flags.has('--json'),
+      expectSessionId: expect ? expect.slice('--expect='.length) : null });
   } else if (cmd === 'widget') {
     const lang = (args.find(a => a.startsWith('--lang=')) || '--lang=en').split('=')[1];
     console.log(widgetHtml(collect(), lang));
@@ -736,7 +789,7 @@ try {
     console.log(xbarOutput(collect()));
   } else if (cmd === 'confirm-unload') {
     if (!pos[1]) throw new Error('usage: confirm-unload <pid>');
-    confirmUnload(pos[1]);
+    confirmUnload(pos[1], { force: flags.has('--force') });
   } else if (cmd === 'serve') {
     await serve({ port: portArg ? Number(portArg.split('=')[1]) : 0, open: !flags.has('--no-open'), asTab: flags.has('--tab'), keep: flags.has('--keep'), page: flags.has('--setup') ? 'setup' : '' });
   } else {
