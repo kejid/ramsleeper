@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session RAM</title>
+<style>
+  :root {
+    --bg: #f7f6f2; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6a65; --line: #e4e2da;
+    --accent: #c8643c; --accent-soft: rgba(200,100,60,.12); --ok: #2f7d4f; --warn: #a86b00; --danger: #b3261e;
+    --bar: #d9d6cc;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1a1918; --panel: #232221; --text: #f1efe9; --muted: #a9a69e; --line: #3a3936;
+      --accent: #e58a63; --accent-soft: rgba(229,138,99,.16); --ok: #6cc08d; --warn: #e0a84a; --danger: #f08a80; --bar: #3f3d3a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 28px 16px 60px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 20px; margin-bottom: 18px; }
+  h1 { font-size: 22px; margin: 0; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 18px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .stat b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 13px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  tr:last-child td { border-bottom: 0; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .title { font-weight: 600; overflow-wrap: anywhere; }
+  .cwd { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+  .you { display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: 99px; font-size: 11px; font-weight: 600; background: var(--accent-soft); color: var(--accent); }
+  .ram { min-width: 150px; }
+  .bar { height: 6px; background: var(--bar); border-radius: 3px; margin-top: 5px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 12px; font-weight: 600; }
+  .pill.idle { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+  .pill.busy { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+  button { font: inherit; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 6px 12px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--danger); border-color: var(--danger); color: #fff; }
+  button.primary:hover:not(:disabled) { filter: brightness(1.08); color: #fff; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .empty, .error { padding: 28px; text-align: center; color: var(--muted); }
+  .error { color: var(--danger); }
+  .foot { margin-top: 12px; color: var(--muted); font-size: 12px; }
+  dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); padding: 22px; width: min(620px, calc(100vw - 32px)); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  dialog h2 { margin: 0 0 6px; font-size: 18px; }
+  dialog ul { max-height: 240px; overflow: auto; padding-left: 18px; margin: 8px 0; font-size: 13px; }
+  dialog li { margin: 2px 0; overflow-wrap: anywhere; }
+  .flag { color: var(--warn); font-weight: 600; }
+  .note { background: var(--accent-soft); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin: 12px 0; }
+  .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: calc(100vw - 32px); background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 14px; display: none; }
+  @media (max-width: 720px) {
+    .hide-sm { display: none; }
+    th, td { padding: 8px; }
+    .ram { min-width: 90px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Session RAM</h1>
+    <span class="sub" id="updated"></span>
+  </header>
+  <section class="stats" id="stats"></section>
+  <section class="card" id="list"><div class="empty" data-i18n="loading"></div></section>
+  <p class="foot" id="metric"></p>
+</main>
+
+<dialog id="confirm">
+  <h2 id="c-title"></h2>
+  <div id="c-body"></div>
+  <div class="actions">
+    <button id="c-cancel" data-i18n="cancel"></button>
+    <button id="c-ok" class="primary" data-i18n="unload"></button>
+  </div>
+</dialog>
+<div id="toast" role="status"></div>
+
+<script>
+const TOKEN = '__TOKEN__';
+const RU = (navigator.language || '').toLowerCase().startsWith('ru');
+const T = RU ? {
+  loading: 'Загрузка…', cancel: 'Отмена', unload: 'Выгрузить', session: 'Сессия', ram: 'Память', procs: 'Процессы',
+  status: 'Статус', last: 'Активность', idle: 'ждёт', busy: 'работает', you: 'эта сессия',
+  sessions: 'сессий Claude Code', app: 'само приложение Claude', total: 'в сессиях', none: 'Запущенных сессий Claude Code нет.',
+  updated: s => `обновлено ${s}`, just: 'только что', min: n => `${n} мин назад`, hr: n => `${n} ч назад`, day: n => `${n} дн назад`,
+  whyCurrent: 'Это сессия, из которой открыта панель', whyBusy: 'Сессия сейчас работает — дождитесь окончания хода',
+  confirmTitle: t => `Выгрузить «${t}»?`,
+  frees: (m, n) => `Освободится около <b>${m}</b>: остановятся ${n} процессов.`,
+  flagged: 'Остановится и это (не MCP-сервер):',
+  keep: 'Переписка сохранена в транскрипте. Процессы можно запустить снова.',
+  resumeDesktop: 'Чтобы продолжить: откройте сессию в боковой панели приложения Claude и отправьте сообщение.',
+  resumeCli: c => `Чтобы продолжить: <code>${c}</code>`,
+  done: (t, m) => `«${t}» выгружена, освобождено ~${m}.`, failed: e => `Не удалось: ${e}`,
+  metric: m => `Память: ${m === 'RSS' ? 'RSS (разделяемые страницы считаются несколько раз)' : 'частный рабочий набор, как колонка «Память» в Диспетчере задач'}. Панель работает только на этом компьютере и ничего не отправляет в сеть.`,
+  gone: 'Панель остановлена. Запустите её снова командой /session-ram:dashboard.',
+} : {
+  loading: 'Loading…', cancel: 'Cancel', unload: 'Unload', session: 'Session', ram: 'Memory', procs: 'Processes',
+  status: 'Status', last: 'Last activity', idle: 'idle', busy: 'busy', you: 'this session',
+  sessions: 'Claude Code sessions', app: 'Claude app itself', total: 'in sessions', none: 'No running Claude Code sessions.',
+  updated: s => `updated ${s}`, just: 'just now', min: n => `${n} min ago`, hr: n => `${n} h ago`, day: n => `${n} d ago`,
+  whyCurrent: 'This is the session the dashboard was opened from', whyBusy: 'The session is working; wait until the turn ends',
+  confirmTitle: t => `Unload "${t}"?`,
+  frees: (m, n) => `Frees about <b>${m}</b> by stopping ${n} processes.`,
+  flagged: 'This stops too (not an MCP server):',
+  keep: 'The conversation stays in its transcript. Nothing is deleted.',
+  resumeDesktop: 'To continue: open the session in the Claude app sidebar and send a message.',
+  resumeCli: c => `To continue: <code>${c}</code>`,
+  done: (t, m) => `Unloaded "${t}", ~${m} freed.`, failed: e => `Failed: ${e}`,
+  metric: m => `Memory: ${m === 'RSS' ? 'RSS (shared pages are counted more than once)' : 'private working set, the same as the Memory column in Task Manager'}. The dashboard runs on this computer only and sends nothing over the network.`,
+  gone: 'The dashboard has stopped. Start it again with /session-ram:dashboard.',
+};
+document.documentElement.lang = RU ? 'ru' : 'en';
+document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = T[el.dataset.i18n]; });
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const mb = b => b >= 1073741824 ? `${(b / 1073741824).toFixed(1)} ${RU ? 'ГБ' : 'GB'}` : `${Math.round(b / 1048576)} ${RU ? 'МБ' : 'MB'}`;
+const ago = ms => {
+  if (!ms) return '—';
+  const s = (Date.now() - ms) / 1000;
+  return s < 90 ? T.just : s < 5400 ? T.min(Math.round(s / 60)) : s < 129600 ? T.hr(Math.round(s / 3600)) : T.day(Math.round(s / 86400));
+};
+// Child processes a user would not expect to lose: anything that is not an MCP
+// server, a shell, or console plumbing.
+const PLUMBING = /^(conhost|cmd|powershell|pwsh|bash|sh|zsh|uv|uvx|npx|npm|node|python\d?|mcp[-\w]*)(\.exe)?$/i;
+const isFlagged = c => !/mcp/i.test(c.cmd) && !(PLUMBING.test(c.name) && (/mcp/i.test(c.cmd) || c.cmd === '' || /^0x/.test(c.cmd)));
+
+let data = null, lastOk = 0, pending = null;
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { 'X-Session-Ram-Token': TOKEN, 'Content-Type': 'application/json' } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok && !('ok' in j)) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+async function refresh() {
+  try {
+    data = await api('/api/sessions');
+    lastOk = Date.now();
+    render();
+  } catch (e) {
+    if (!data) $('list').innerHTML = `<div class="error">${esc(e.message)}</div>`;
+    else $('updated').textContent = T.gone;
+  }
+}
+
+function render() {
+  const { sessions, app, memMetric } = data;
+  const total = sessions.reduce((t, s) => t + s.memBytes, 0);
+  const procs = sessions.reduce((t, s) => t + s.processCount, 0);
+  $('stats').innerHTML = [
+    [mb(total), `${T.total} · ${procs} ${T.procs.toLowerCase()}`],
+    [sessions.length, T.sessions],
+    ...(app ? [[mb(app.memBytes), T.app]] : []),
+  ].map(([b, s]) => `<div class="stat"><b>${esc(b)}</b><span>${esc(s)}</span></div>`).join('');
+  $('metric').textContent = T.metric(memMetric);
+  if (!sessions.length) { $('list').innerHTML = `<div class="empty">${T.none}</div>`; return; }
+  const max = Math.max(...sessions.map(s => s.memBytes));
+  $('list').innerHTML = `<table>
+    <thead><tr><th>${T.session}</th><th>${T.ram}</th><th class="hide-sm">${T.procs}</th><th>${T.status}</th><th class="hide-sm">${T.last}</th><th></th></tr></thead>
+    <tbody>${sessions.map(s => {
+      const why = s.current ? T.whyCurrent : s.status === 'busy' ? T.whyBusy : '';
+      return `<tr>
+        <td><div class="title">${esc(s.title)}${s.current ? `<span class="you">${T.you}</span>` : ''}</div><div class="cwd">${esc(s.cwd)}</div></td>
+        <td class="num ram">${mb(s.memBytes)}<div class="bar"><i style="width:${Math.max(2, s.memBytes / max * 100)}%"></i></div></td>
+        <td class="num hide-sm">${s.processCount}</td>
+        <td><span class="pill ${s.status === 'busy' ? 'busy' : 'idle'}">${esc(T[s.status] || s.status)}</span></td>
+        <td class="num hide-sm">${ago(s.lastActivityAt)}</td>
+        <td><button data-pid="${s.pid}" ${why ? `disabled title="${esc(why)}"` : ''}>${T.unload}</button></td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
+  tick();
+}
+
+function tick() { if (lastOk) $('updated').textContent = T.updated(ago(lastOk)); }
+
+$('list').addEventListener('click', e => {
+  const b = e.target.closest('button[data-pid]');
+  if (!b) return;
+  const s = data.sessions.find(x => x.pid === Number(b.dataset.pid));
+  if (!s) return;
+  pending = s;
+  const flagged = s.children.filter(isFlagged);
+  const resume = s.entrypoint === 'claude-desktop' ? T.resumeDesktop : T.resumeCli(esc(`claude --resume ${s.sessionId}`));
+  $('c-title').textContent = T.confirmTitle(s.title);
+  $('c-body').innerHTML = `
+    <p>${T.frees(mb(s.memBytes), s.processCount)}</p>
+    <ul>
+      <li>claude — ${mb(s.ownMemBytes)} (PID ${s.pid})</li>
+      ${s.children.map(c => `<li class="${isFlagged(c) ? 'flag' : ''}">${esc(c.name)}${c.cmd ? ' · ' + esc(c.cmd) : ''} — ${mb(c.memBytes)}</li>`).join('')}
+    </ul>
+    ${flagged.length ? `<p class="flag">${T.flagged} ${flagged.map(c => esc(c.cmd || c.name)).join(', ')}</p>` : ''}
+    <div class="note">${T.keep}<br>${resume}</div>`;
+  $('c-ok').disabled = false;
+  $('confirm').showModal();
+});
+
+$('c-cancel').onclick = () => $('confirm').close();
+$('c-ok').onclick = async () => {
+  const s = pending;
+  $('c-ok').disabled = true;
+  try {
+    const r = await api('/api/unload', { method: 'POST', body: JSON.stringify({ pid: s.pid, sessionId: s.sessionId }) });
+    toast(r.ok ? T.done(s.title, mb(r.freedBytes)) : T.failed(r.error));
+  } catch (e) { toast(T.failed(e.message)); }
+  $('confirm').close();
+  refresh();
+};
+
+function toast(msg) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.style.display = 'block';
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => { el.style.display = 'none'; }, 7000);
+}
+
+refresh();
+setInterval(refresh, 10000);
+setInterval(tick, 5000);
+</script>
+</body>
+</html>
