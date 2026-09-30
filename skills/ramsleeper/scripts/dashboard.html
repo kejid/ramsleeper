@@ -135,7 +135,7 @@ const T = RU ? {
   frees: (m, n) => `Освободится около <b>${m}</b>: остановятся ${n} процессов.`,
   flagged: 'Остановится и это (не MCP-сервер):',
   keep: 'Переписка сохранена в транскрипте. Процессы можно запустить снова.',
-  resumeDesktop: 'Чтобы продолжить: откройте сессию в боковой панели приложения Claude и отправьте сообщение.',
+  resumeDesktop: 'Чтобы вернуть: откройте сессию в приложении Claude и напишите сообщение — она снова загрузится в память с той же перепиской.',
   resumeCli: c => `Чтобы продолжить: <code>${c}</code>`,
   done: (t, m) => `«${t}» выгружена, освобождено ~${m}.`, failed: e => `Не удалось: ${e}`,
   metric: m => `Память: ${m === 'RSS' ? 'RSS (разделяемые страницы считаются несколько раз)' : 'частный рабочий набор, как колонка «Память» в Диспетчере задач'}. Панель работает только на этом компьютере и ничего не отправляет в сеть.`,
@@ -150,7 +150,7 @@ const T = RU ? {
   frees: (m, n) => `Frees about <b>${m}</b> by stopping ${n} processes.`,
   flagged: 'This stops too (not an MCP server):',
   keep: 'The conversation stays in its transcript. Nothing is deleted.',
-  resumeDesktop: 'To continue: open the session in the Claude app sidebar and send a message.',
+  resumeDesktop: 'To bring it back: open the session in the Claude app and send a message. It loads back into memory with the same conversation.',
   resumeCli: c => `To continue: <code>${c}</code>`,
   done: (t, m) => `Unloaded "${t}", ~${m} freed.`, failed: e => `Failed: ${e}`,
   metric: m => `Memory: ${m === 'RSS' ? 'RSS (shared pages are counted more than once)' : 'private working set, the same as the Memory column in Task Manager'}. The dashboard runs on this computer only and sends nothing over the network.`,
@@ -177,6 +177,7 @@ Object.assign(T, RU ? {
     ['Почему цифры не совпадают с Диспетчером задач?', 'Здесь считается частный рабочий набор всего дерева процессов сессии, как колонка «Память» на вкладке «Подробности». На вкладке «Процессы» Windows группирует процессы иначе. На macOS и Linux показывается RSS, где общая память учитывается несколько раз.'],
     ['Отправляет ли плагин что-то в сеть?', 'Нет. Всё читается с этого компьютера. Панель слушает только 127.0.0.1 и требует одноразовый токен из ссылки.'],
     ['Сколько стоит держать плагин установленным?', 'Фоновых процессов у плагина нет. В каждую сессию, где он включён, добавляется около 200 токенов описаний команд. Значок в трее — один процесс примерно на 60 МБ.'],
+    ['Что будет, когда я снова открою сессию?', 'Она снова загрузится в память: приложение запустит её из транскрипта при первом сообщении, с той же перепиской. Память она, конечно, займёт заново.'],
     ['Как всё удалить?', 'Выключите запуск при входе здесь или в меню значка, выберите «Выход», затем выполните claude plugin uninstall ramsleeper@ramsleeper.'],
   ],
 } : {
@@ -200,6 +201,7 @@ Object.assign(T, RU ? {
     ['Why don’t the numbers match Task Manager?', 'This counts the private working set of the session’s whole process tree, like the Memory column on the Details tab. The Processes tab groups processes differently. On macOS and Linux it shows RSS, which counts shared memory more than once.'],
     ['Does the plugin send anything over the network?', 'No. Everything is read on this computer. The dashboard listens on 127.0.0.1 only and needs the one-time token in its link.'],
     ['What does keeping the plugin installed cost?', 'The plugin has no background processes. Each session where it is enabled gets about 200 tokens of command descriptions. The tray icon is one process of about 60 MB.'],
+    ['What happens when I open the session again?', 'It loads back into memory: on your first message the app starts it from its transcript, with the same conversation. It takes up memory again, of course.'],
     ['How do I remove everything?', 'Turn off start at sign-in here or in the icon’s menu, choose Exit, then run claude plugin uninstall ramsleeper@ramsleeper.'],
   ],
 });

@@ -333,6 +333,50 @@ function alive(pid) {
 // because it follows parent PIDs blindly and would also reach unrelated
 // orphans whose dead parent's PID was reused inside this tree.
 function killTree(s) {
+  const graceful = softStop(s.pid);
+  if (graceful) {
+    // MCP servers and shells usually follow their parent within a moment.
+    const kids = s.children.map(c => c.pid);
+    for (let i = 0; i < 20 && kids.some(alive); i++) sleep(100);
+  }
+  hardStop(s);
+  return graceful;
+}
+
+// Asks the session to exit on its own, the way Ctrl+C in a terminal does: the
+// CLI shuts down cleanly with exit code 0, so the desktop app sees an orderly
+// exit rather than a crash and shows no "Claude Code crashed" banner. On
+// Windows a helper process attaches to the session's hidden console and
+// raises Ctrl+C there; elsewhere it is SIGINT. Returns true if the session
+// exited within five seconds.
+function softStop(pid) {
+  try {
+    if (IS_WIN) {
+      const script = `
+        Add-Type -Namespace RamSleeper -Name Con -MemberDefinition @'
+        [DllImport("kernel32.dll")] public static extern bool FreeConsole();
+        [DllImport("kernel32.dll")] public static extern bool AttachConsole(uint pid);
+        [DllImport("kernel32.dll")] public static extern bool SetConsoleCtrlHandler(IntPtr h, bool add);
+        [DllImport("kernel32.dll")] public static extern bool GenerateConsoleCtrlEvent(uint ev, uint group);
+'@
+        [RamSleeper.Con]::FreeConsole() | Out-Null
+        if (-not [RamSleeper.Con]::AttachConsole(${Number(pid)})) { exit 2 }
+        [RamSleeper.Con]::SetConsoleCtrlHandler([IntPtr]::Zero, $true) | Out-Null
+        $ok = [RamSleeper.Con]::GenerateConsoleCtrlEvent(0, 0)
+        Start-Sleep -Milliseconds 200
+        [RamSleeper.Con]::FreeConsole() | Out-Null
+        if ($ok) { exit 0 } else { exit 3 }`;
+      execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+        { stdio: 'ignore', windowsHide: true, timeout: 15000 });
+    } else {
+      process.kill(pid, 'SIGINT');
+    }
+  } catch { return false; } // no console to attach to, or already gone: fall back to a hard stop
+  for (let i = 0; i < 50 && alive(pid); i++) sleep(100);
+  return !alive(pid);
+}
+
+function hardStop(s) {
   if (IS_WIN) {
     const pids = [s.pid, ...s.children.map(c => c.pid)];
     // taskkill accepts many /PID arguments; stay well under the command-line limit.
@@ -368,7 +412,7 @@ function unloadSession(target, { yes = false, force = false, expectSessionId = n
   const plan = planFor(s);
   if (!yes) return { ok: true, dryRun: true, plan, session: s };
 
-  killTree(s);
+  const graceful = killTree(s);
   const survivors = [s.pid, ...s.children.map(c => c.pid)].filter(alive);
   const ok = !alive(s.pid);
   // A killed process cannot remove its own pid file; a stale one could later
@@ -378,7 +422,7 @@ function unloadSession(target, { yes = false, force = false, expectSessionId = n
     if (readJson(f)?.sessionId === s.sessionId) { try { fs.unlinkSync(f); } catch { /* already gone */ } }
   }
   return {
-    ok, unloaded: ok, freedBytes: ok ? s.memBytes : 0, survivors, plan, session: s,
+    ok, unloaded: ok, graceful, freedBytes: ok ? s.memBytes : 0, survivors, plan, session: s,
     ...(ok ? {} : { error: `could not stop PID ${s.pid}.` }),
   };
 }
@@ -389,7 +433,7 @@ function planFor(s) {
     cwd: s.cwd, status: s.status, entrypoint: s.entrypoint, memBytes: s.memBytes, processCount: s.processCount,
     children: s.children, transcript: s.transcript,
     resume: s.entrypoint === 'claude-desktop'
-      ? 'Open the session in the Claude app sidebar and send a message; the app restarts it from the transcript.'
+      ? 'Open the session in the Claude app and send a message: it loads back into memory with the same conversation.'
       : `cd "${s.cwd}" && claude --resume ${s.sessionId}`,
   };
 }

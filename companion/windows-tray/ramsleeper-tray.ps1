@@ -71,20 +71,24 @@ $T = if ($RU) { @{
     busyWarn = 'Сессия сейчас работает: текущий ход оборвётся. Переписка до него сохранится.'
     busy = 'работает'; idle = 'ждёт'; mb = 'МБ'; gb = 'ГБ'
     refresh = 'Обновить'; dashboard = 'Открыть панель'; autostart = 'Запускать при входе в Windows'; exit = 'Выход'
+    tip = 'Сессии Claude Code: {0} ({1:0}% памяти), {2} шт.'
+    legend = 'Цифра на значке — сколько гигабайт занимают все сессии. Цвет: зелёный до 15% памяти, жёлтый до 30%, красный больше.'
     none = 'Запущенных сессий нет'; loading = 'Загрузка…'; updated = 'обновлено'; app = 'приложение Claude'
     confirmTitle = 'Выгрузить сессию?'; frees = 'Освободится около {0} ({1} процессов).'
     flagged = 'Остановится и это (не MCP-сервер):'; keep = 'Переписка останется в транскрипте.'
-    resume = 'Чтобы продолжить: откройте сессию в боковой панели приложения Claude и отправьте сообщение.'
+    resume = 'Чтобы вернуть: откройте сессию в приложении Claude и напишите сообщение — она снова загрузится в память с той же перепиской.'
     done = 'Выгружено: {0}, освобождено ~{1}'; failed = 'Не удалось: {0}'; procs = 'проц.'
 } } else { @{
     title = 'Claude Code sessions'; unload = 'Unload'; interrupt = 'Interrupt'
     busyWarn = 'This session is working: the running turn will be cut off. The conversation up to it is kept.'
     busy = 'busy'; idle = 'idle'; mb = 'MB'; gb = 'GB'
     refresh = 'Refresh'; dashboard = 'Open dashboard'; autostart = 'Start at Windows sign-in'; exit = 'Exit'
+    tip = 'Claude Code sessions: {0} ({1:0}% of memory), {2}'
+    legend = 'The number on the icon is gigabytes held by all sessions. Color: green under 15% of memory, amber under 30%, red above.'
     none = 'No running sessions'; loading = 'Loading…'; updated = 'updated'; app = 'Claude app'
     confirmTitle = 'Unload this session?'; frees = 'Frees about {0} ({1} processes).'
     flagged = 'This stops too (not an MCP server):'; keep = 'The conversation stays in its transcript.'
-    resume = 'To continue: open the session in the Claude app sidebar and send a message.'
+    resume = 'To bring it back: open the session in the Claude app and send a message. It loads back into memory with the same conversation.'
     done = 'Unloaded {0}, ~{1} freed'; failed = 'Failed: {0}'; procs = 'proc.'
 } }
 
@@ -217,7 +221,11 @@ function Build-Popup {
     $total = ($sessions | Measure-Object memBytes -Sum).Sum
     Add-Label $popup $T.title $FontHead $C.fg $pad $y 250 | Out-Null
     if ($script:data) { Add-Label $popup (Format-Size $total) $FontHead $C.fg ($w - 150 - $pad) $y 150 'MiddleRight' | Out-Null }
-    $y += 30
+    $y += 26
+    # Explains the tray icon, which is too small to label.
+    $lg = Add-Label $popup $T.legend $FontUi $C.muted $pad $y ($w - 2 * $pad)
+    $lg.Height = 34
+    $y += 40
 
     if (-not $script:data) {
         Add-Label $popup $T.loading $FontUi $C.muted $pad $y 300 | Out-Null; $y += 28
@@ -317,7 +325,7 @@ $timer.Add_Tick({
             $old = $tray.Icon
             $tray.Icon = New-TrayIcon $label $bg
             $old.Dispose()
-            $tip = 'RAM Sleeper · {0} · {1} ({2:0}% RAM)' -f @($script:data.sessions).Count, (Format-Size $total), ($share * 100)
+            $tip = $T.tip -f (Format-Size $total), ($share * 100), @($script:data.sessions).Count
             $tray.Text = $tip.Substring(0, [Math]::Min(63, $tip.Length))
             if ($popup.Visible) { Build-Popup }
         } catch { }

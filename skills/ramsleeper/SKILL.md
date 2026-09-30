@@ -54,7 +54,7 @@ Unloading stops the session's process tree: the `claude` process, its MCP server
    ```
    `--expect` makes the script refuse if the PID no longer belongs to the session you previewed.
 5. Report the memory freed and how to continue, which the script prints:
-   - Claude desktop app: click the session in the sidebar and send a message; the app restarts it from the transcript with the same conversation.
+   - Claude desktop app: open the session and send a message; it loads back into memory with the same conversation. Say this in the reply, so the user knows the session is asleep, not gone.
    - Terminal: `claude --resume <session-id>` in the session's folder.
 
 Pass `--force` only for a busy session the user explicitly agreed to interrupt after hearing the warning in step 3. Never stop Claude desktop app processes, and never kill processes by hand instead of using the script.

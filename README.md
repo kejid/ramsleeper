@@ -16,7 +16,7 @@ In any Claude Code session:
 
 To continue an unloaded session:
 
-- **Claude desktop app:** click the session in the sidebar and send a message. The app starts it again from its transcript, with the same conversation.
+- **Claude desktop app:** open the session and send a message. It loads back into memory from its transcript, with the same conversation. The session stays in the sidebar the whole time.
 - **Terminal:** run `claude --resume <session-id>` in the session's folder. The unload result prints the exact command.
 
 ### Safety rules
@@ -62,7 +62,7 @@ To try it without installing, run `claude --plugin-dir <path to this repository>
 
 Every running Claude Code process writes a small file to `~/.claude/sessions/<pid>.json`. The file holds its session ID, working folder, status, and start time. The plugin reads these files and then reads the operating system's process table to find each session's child processes and their memory. On Windows the figure is the private working set, which is the Memory column in Task Manager. On macOS and Linux it is RSS, which counts shared memory more than once. Session titles come from the Claude desktop app's local session files and, for terminal sessions, from the first prompt in the transcript under `~/.claude/projects/`.
 
-Unloading stops exactly the processes listed in the confirmation: `taskkill /F` on Windows, SIGTERM and then SIGKILL on macOS and Linux. The transcript is never touched; the session's stale file in `~/.claude/sessions` is removed, because a killed process cannot remove it itself.
+Unloading first asks the session to exit on its own, the way Ctrl+C in a terminal does: on Windows a short-lived helper attaches to the session's hidden console and raises Ctrl+C, and on macOS and Linux the session gets SIGINT. Claude Code then shuts down cleanly, so the desktop app does not report a crash. Whatever from the confirmed list is still running after five seconds is stopped: `taskkill /F` on Windows, SIGTERM and then SIGKILL on macOS and Linux. The transcript is never touched; the session's stale file in `~/.claude/sessions` is removed, because a killed process cannot remove it itself.
 
 Tested on Windows 11 with the Claude desktop app and Claude Code 2.1: a session unloaded this way came back on its next message as a new process resuming the same session ID, and it still knew what it had been told before. The macOS and Linux code paths (process table, menu bar output, dialogs) are written to the same rules, but they have not been run on those systems yet. Reports are welcome.
 
