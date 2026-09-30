@@ -101,7 +101,7 @@ The number on the icon is how many sessions have been idle for 15 minutes or mor
 
 **✅ tested** on Windows 11 with Claude desktop 2.16120 and Claude Code 2.1.284 against real sessions. A session unloaded this way came back on its next message, with a new process resuming the same session ID and the whole conversation.
 
-**🧪 smoke test passes** means `tests/smoke.mjs` passes on Debian 12 with Node 20 in Docker. The test uses fake sessions; nothing was tried on a Linux desktop with real Claude Code sessions. On Linux, `ps` must come from procps, which desktop distributions ship; BusyBox `ps` is not enough.
+**🧪 smoke test passes** means `tests/smoke.mjs` passes on Debian 12 with Node 18 and Node 20 in Docker. The test uses fake sessions; nothing was tried on a Linux desktop with real Claude Code sessions. On Linux, `ps` must come from procps, which desktop distributions ship; BusyBox `ps` is not enough.
 
 ### Help wanted: macOS and Linux testers
 
@@ -153,7 +153,7 @@ The setup page prints the exact command for the apps it finds. Unload asks for c
 
 Every running Claude Code process writes `~/.claude/sessions/<pid>.json` with its session ID, working folder, status, and start time. RAM Sleeper reads these files, then walks the operating system's process table to find each session's descendants and their memory. On Windows the figure is the private working set, the Memory column in Task Manager's Details tab. On macOS and Linux it is RSS, which counts shared memory more than once. Session titles come from the Claude desktop app's local session files or, for terminal sessions, from the first prompt in the transcript under `~/.claude/projects/`.
 
-To unload, RAM Sleeper first asks the session to exit on its own. On Windows a short-lived helper attaches to the session's hidden console and raises Ctrl+C. On macOS and Linux the session gets SIGINT. Claude Code then shuts down cleanly, so the desktop app treats the exit as normal. Anything from the confirmed list still running after five seconds is stopped: with `taskkill /F` on Windows, with SIGTERM and then SIGKILL elsewhere. The transcript is never touched. The session's leftover file in `~/.claude/sessions` is removed, because a stopped process cannot remove it itself.
+To unload, RAM Sleeper first asks the session to exit on its own. On macOS and Linux the session gets SIGINT. On Windows a short-lived helper attaches to the session's hidden console and raises Ctrl+C. It does this only for sessions of the desktop app, each of which has a console of its own. A terminal session shares your terminal's console, and Ctrl+C there would also reach your shell. Claude Code then shuts down cleanly, so the desktop app treats the exit as normal. After five seconds, anything from the confirmed list that is still the same process, going by its start time, is stopped by force: with `taskkill /F` on Windows, with SIGTERM and then SIGKILL elsewhere. A PID freed during shutdown and taken by another program is left alone. The transcript is never touched. The session's leftover file in `~/.claude/sessions` is removed, because a stopped process cannot remove it itself.
 
 ## Data
 

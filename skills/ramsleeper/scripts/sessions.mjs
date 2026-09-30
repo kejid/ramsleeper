@@ -279,7 +279,11 @@ function collect() {
       memBytes: proc.mem + kids.reduce((s, k) => s + k.mem, 0),
       ownMemBytes: proc.mem,
       processCount: 1 + kids.length,
-      children: kids.map(k => ({ pid: k.pid, name: k.name, memBytes: k.mem, cmd: shortCmd(k.cmd), notable: isNotable(k, proc, procs) })),
+      // startKey (FILETIME on Windows, epoch ms elsewhere) lets unload tell a
+      // listed process from a later one that got the same PID.
+      startKey: proc.start ?? proc.startMs ?? null,
+      children: kids.map(k => ({ pid: k.pid, name: k.name, memBytes: k.mem, cmd: shortCmd(k.cmd), notable: isNotable(k, proc, procs),
+        startKey: k.start ?? k.startMs ?? null })),
       current: myChain.has(info.pid),
     });
   }
@@ -387,18 +391,43 @@ function isZombie(pid) {
   } catch { return false; }
 }
 
-// Stops exactly the processes shown in the plan: the session first, so it
-// cannot start replacements, then its children. taskkill /T is not used
-// because it follows parent PIDs blindly and would also reach unrelated
-// orphans whose dead parent's PID was reused inside this tree.
+// The processes a plan covers, each with the start time seen when it was listed.
+function planProcesses(s) {
+  return [{ pid: s.pid, startKey: s.startKey }, ...s.children.map(c => ({ pid: c.pid, startKey: c.startKey }))];
+}
+
+// Which of these processes are still the very same processes. A PID alone is
+// not enough: one freed while the session shut down can already belong to an
+// unrelated program, so the start time must match too.
+function stillRunning(items) {
+  const candidates = items.filter(x => alive(x.pid));
+  if (!candidates.length) return [];
+  const live = readProcesses();
+  return candidates.filter(x => {
+    const p = live.get(x.pid);
+    if (!p) return false;
+    const key = p.start ?? p.startMs ?? null;
+    return x.startKey == null || key == null || String(key) === String(x.startKey);
+  });
+}
+
+// Stops exactly the processes shown in the plan. The session is first asked to
+// exit on its own; whatever is left after that is stopped by force, but only if
+// it is still the same process. taskkill /T is not used because it follows
+// parent PIDs blindly and would also reach unrelated orphans whose dead
+// parent's PID was reused inside this tree.
 function killTree(s) {
-  const graceful = softStop(s.pid);
+  // On Windows, Ctrl+C reaches every process attached to the console. Only the
+  // desktop app gives each session a console of its own; a terminal session
+  // shares the user's terminal, whose shell and scripts must not get Ctrl+C.
+  const graceful = !IS_WIN || s.entrypoint === 'claude-desktop' ? softStop(s.pid) : false;
   if (graceful) {
     // MCP servers and shells usually follow their parent within a moment.
     const kids = s.children.map(c => c.pid);
     for (let i = 0; i < 20 && kids.some(alive); i++) sleep(100);
   }
-  hardStop(s);
+  const left = stillRunning(planProcesses(s));
+  if (left.length) hardStop(left.map(x => x.pid));
   return graceful;
 }
 
@@ -435,23 +464,22 @@ function softStop(pid) {
   return !alive(pid);
 }
 
-function hardStop(s) {
+// Forcefully stops the given PIDs, which the caller has just verified.
+function hardStop(pids) {
   if (IS_WIN) {
-    const pids = [s.pid, ...s.children.map(c => c.pid)];
     // taskkill accepts many /PID arguments; stay well under the command-line limit.
     for (let i = 0; i < pids.length; i += 50) {
       const batch = pids.slice(i, i + 50).flatMap(p => ['/PID', String(p)]);
       try {
         execFileSync('taskkill.exe', ['/F', ...batch], { encoding: 'utf8', windowsHide: true, stdio: 'pipe' });
-      } catch { /* some may already be gone; verified below */ }
+      } catch { /* some may already be gone; verified by the caller */ }
     }
   } else {
-    const all = [s.pid, ...s.children.map(c => c.pid)];
-    for (const pid of all) { try { process.kill(pid, 'SIGTERM'); } catch { /* gone */ } }
-    for (let i = 0; i < 30 && all.some(alive); i++) sleep(100);
-    for (const pid of all) { if (alive(pid)) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } } }
+    for (const pid of pids) { try { process.kill(pid, 'SIGTERM'); } catch { /* gone */ } }
+    for (let i = 0; i < 30 && pids.some(alive); i++) sleep(100);
+    for (const pid of pids) { if (alive(pid)) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } } }
   }
-  for (let i = 0; i < 30 && alive(s.pid); i++) sleep(100);
+  for (let i = 0; i < 30 && pids.some(alive); i++) sleep(100);
 }
 
 // Checks a session and, with `yes`, stops it. Returns a result object; never
@@ -473,8 +501,8 @@ function unloadSession(target, { yes = false, force = false, expectSessionId = n
   if (DEMO) return { ok: true, unloaded: true, graceful: true, freedBytes: s.memBytes, survivors: [], plan, session: s, demo: true };
 
   const graceful = killTree(s);
-  const survivors = [s.pid, ...s.children.map(c => c.pid)].filter(alive);
-  const ok = !alive(s.pid);
+  const survivors = stillRunning(planProcesses(s)).map(x => x.pid);
+  const ok = !survivors.includes(s.pid);
   // A killed process cannot remove its own pid file; a stale one could later
   // match a reused PID, so drop it (only if it still describes this session).
   if (ok) {
