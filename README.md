@@ -6,47 +6,71 @@ Every Claude Code session is its own tree of processes: the `claude` process plu
 
 ![Dashboard listing six Claude Code sessions with memory bars, status, and Unload buttons](docs/images/dashboard-dark.png)
 
-## What you get
+## Quick start
 
-- **Per-session memory.** Covers every process a session started, each session's status (busy or idle), last activity, and the desktop app's own share.
-- **Unload without losing anything.** The session is asked to exit on its own, as if you pressed Ctrl+C, so the desktop app does not report a crash. Its transcript stays on disk. When you open the session and send a message, it loads back into memory with the same conversation.
-- **Stuck sessions too.** A busy session can be interrupted and unloaded after a separate warning.
-- **Four ways to use it:**
-  - ask Claude, or run `/ramsleeper:sessions`;
-  - a local dashboard, `/ramsleeper:dashboard`;
-  - a Windows tray icon;
-  - a menu bar item on macOS and Linux.
+You need Claude Code and [Node.js](https://nodejs.org) 18 or newer on `PATH`. There are no npm dependencies.
+
+1. **Install** from a terminal:
+   ```
+   claude plugin marketplace add kejid/ramsleeper
+   claude plugin install ramsleeper@ramsleeper
+   ```
+2. **Restart** any Claude Code session that is already open. Plugins load when a session starts, and new sessions pick the plugin up on their own.
+3. **Run `/ramsleeper:setup`** in any session. A local page opens. It checks Node.js, lists the commands, and on Windows starts the tray icon with one click.
+
+After that, `/ramsleeper:sessions` shows where your memory goes. You can also ask Claude in plain words, for example "which Claude session uses the most memory?" or "unload the sessions I haven't touched today".
+
+To try RAM Sleeper without installing it, start Claude Code with `claude --plugin-dir <path to this repository>`.
+
+## What it does
+
+- **Shows memory per session.** Each session's figure covers every process it started, and each session also shows its status (busy or idle) and last activity. The desktop app's own share is listed separately.
+- **Unloads without losing anything.** The session is asked to exit on its own, as if you pressed Ctrl+C, so the desktop app does not report a crash. The transcript stays on disk. Open the session, send a message, and it loads back into memory with the same conversation.
+- **Handles stuck sessions.** A busy session can be interrupted and unloaded after a separate warning.
+- **Always confirms first.** Nothing is stopped until you have seen exactly which processes will stop.
 
 ## Screenshots
 
-Every unload is confirmed first. The confirmation lists every process that will stop and highlights anything that isn't an MCP server or a shell, such as a dev server:
+All screenshots use demo data (`RAMSLEEPER_DEMO=1`), not real sessions.
+
+### The confirmation
+
+Every unload is confirmed first. The confirmation lists every process that will stop. It highlights anything that isn't an MCP server or a shell, such as a dev server, because that stops too:
 
 ![Unload confirmation listing the processes that will stop, with a Vite dev server highlighted](docs/images/unload-confirm-dark.png)
 
-In the Claude desktop app the list appears as a card in the chat. Its buttons ask Claude to unload a session, and Claude still confirms first. The picture below is the plugin's real widget output, drawn outside the app:
+### In the Claude desktop chat
+
+`/ramsleeper:sessions` shows the list as a card in the chat. Its buttons ask Claude to unload a session, and Claude still confirms first. The picture is the plugin's real widget output, drawn outside the app:
 
 ![Chat card with memory per session and Unload buttons](docs/images/chat-widget.png)
 
-The number on the Windows tray icon is how many sessions have been idle for 15 minutes or more, which are the ones worth unloading. The color shows how much of your RAM all sessions hold: green below 15 %, amber below 30 %, red above. Hover over the icon for the exact figures, or click it for the list:
+### In a terminal
+
+Without the desktop app, the same command prints a table:
+
+```
+#  Session                         RAM      Procs Status  Last activity  PID    ID
+1  Refactor the checkout flow      1206 MB  7     idle    3 h ago        41208  0000a0f8
+2  Fix flaky payment tests         902 MB   6     busy    just now       38112  000094e0
+3  Write the Q3 release notes      568 MB   3     idle    55 min ago     29904  000074d0
+4  RAM Sleeper plugin              554 MB   3     busy    just now       17444  00004424 ◀ this session
+
+Total: 3801 MB in 22 processes across 6 sessions (private working set).
+Claude desktop app itself: 1720 MB in 14 processes (never touched).
+```
+
+### The Windows tray icon
+
+The number on the icon is how many sessions have been idle for 15 minutes or more, which are the ones worth unloading. The color shows how much of your RAM all sessions hold: green below 15 %, amber below 30 %, red above. Hover over the icon for the exact figures, or click it for the list:
 
 ![Tray popup with the session list, and the tray icon in green, amber, and red](docs/images/tray-popup.png)
+
+### Setup
 
 `/ramsleeper:setup` checks the requirements, starts the tray, and answers common questions:
 
 ![Setup page with requirement checks, commands, tray controls, and FAQ](docs/images/setup-dark.png)
-
-All screenshots use demo data (`RAMSLEEPER_DEMO=1`), not real sessions.
-
-## Install
-
-RAM Sleeper needs [Node.js](https://nodejs.org) 18 or newer on `PATH`. It has no npm dependencies.
-
-```
-claude plugin marketplace add kejid/ramsleeper
-claude plugin install ramsleeper@ramsleeper
-```
-
-Then run `/ramsleeper:setup`. To try it without installing, start Claude Code with `claude --plugin-dir <path to this repository>`.
 
 ## Use it
 
@@ -108,6 +132,22 @@ ln -s "$PWD/companion/menubar/ramsleeper.30s.sh" "<plugin folder>/ramsleeper.30s
 ```
 
 The setup page prints the exact command for the apps it finds. Unload asks for confirmation in a native dialog: `osascript` on macOS, `zenity` or `kdialog` on Linux.
+
+## Troubleshooting
+
+| Problem | What to do |
+|---|---|
+| The `/ramsleeper:…` commands don't appear | Restart the session: plugins load when a session starts. Check that `claude plugin list` shows `ramsleeper`. |
+| "node is not recognized" or "command not found: node" | Install Node.js 18 or newer and restart the Claude app or terminal, so the new `PATH` is picked up. |
+| The tray icon isn't visible | Windows may have put it behind the **^** arrow next to the clock. Drag it onto the taskbar to keep it in view. |
+| The desktop app shows "Claude Code crashed" after an unload | The session didn't finish within five seconds of Ctrl+C and was stopped by force, which usually means it was busy. Nothing is lost: click **Try again** or send a message. |
+| An unload is refused | Read the reason. It is either the session you are talking to, a session without a transcript, or a PID that changed owner since the list was shown. Refresh the list and try again. |
+
+## Uninstall
+
+1. Right-click the tray icon, turn off **Start at Windows sign-in**, and choose **Exit**. Or turn it off on the setup page.
+2. Run `claude plugin uninstall ramsleeper@ramsleeper`.
+3. Optionally, run `claude plugin marketplace remove ramsleeper`.
 
 ## How it works
 
