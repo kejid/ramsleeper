@@ -133,7 +133,7 @@
 <div id="toast" role="status"></div>
 
 <script>
-const TOKEN = '__TOKEN__';
+const NONCE = '__NONCE__';
 const RU = (navigator.language || '').toLowerCase().startsWith('ru');
 const T = RU ? {
   loading: 'Загрузка…', cancel: 'Отмена', unload: 'Выгрузить', session: 'Сессия', ram: 'Память', procs: 'Процессы',
@@ -190,7 +190,7 @@ Object.assign(T, RU ? {
     ['Что будет с dev-сервером или базой, запущенными из сессии?', 'Они остановятся вместе с сессией: это её дочерние процессы. В окне подтверждения они выделены отдельно, чтобы это не стало сюрпризом.'],
     ['Можно ли выгрузить сессию со статусом «работает»?', 'Да, кнопкой «Прервать и выгрузить» после отдельного предупреждения. Ход, который идёт прямо сейчас, оборвётся; всё до него сохранится. Это выход для зависших сессий.'],
     ['Почему цифры не совпадают с Диспетчером задач?', 'Здесь считается частный рабочий набор всего дерева процессов сессии, как колонка «Память» на вкладке «Подробности». На вкладке «Процессы» Windows группирует процессы иначе. На macOS и Linux показывается RSS, где общая память учитывается несколько раз.'],
-    ['Отправляет ли плагин что-то в сеть?', 'Нет. Всё читается с этого компьютера. Панель слушает только 127.0.0.1 и требует одноразовый токен из ссылки.'],
+    ['Отправляет ли плагин что-то в сеть?', 'Нет. Всё читается с этого компьютера. Панель слушает только 127.0.0.1 и требует одноразовый код из ссылки.'],
     ['Сколько стоит держать плагин установленным?', 'Фоновых процессов у плагина нет. В каждую сессию, где он включён, добавляется около 200 токенов описаний команд. Значок в трее — один процесс примерно на 60 МБ.'],
     ['Что будет, когда я снова открою сессию?', 'Она снова загрузится в память: приложение запустит её из транскрипта при первом сообщении, с той же перепиской. Память она, конечно, займёт заново.'],
     ['Как всё удалить?', 'Выключите запуск при входе здесь или в меню значка, выберите «Выход», затем выполните claude plugin uninstall ramsleeper@ramsleeper.'],
@@ -219,7 +219,7 @@ Object.assign(T, RU ? {
     ['What happens to a dev server or database started from a session?', 'It stops with the session, because it is one of its child processes. The confirmation lists such processes separately so it is not a surprise.'],
     ['Can I unload a busy session?', 'Yes, with Interrupt and unload, after a separate warning. The turn that is running is cut off; everything before it is kept. It is the way out for a stuck session.'],
     ['Why don’t the numbers match Task Manager?', 'This counts the private working set of the session’s whole process tree, like the Memory column on the Details tab. The Processes tab groups processes differently. On macOS and Linux it shows RSS, which counts shared memory more than once.'],
-    ['Does the plugin send anything over the network?', 'No. Everything is read on this computer. The dashboard listens on 127.0.0.1 only and needs the one-time token in its link.'],
+    ['Does the plugin send anything over the network?', 'No. Everything is read on this computer. The dashboard listens on 127.0.0.1 only and needs the one-time code in its link.'],
     ['What does keeping the plugin installed cost?', 'The plugin has no background processes. Each session where it is enabled gets about 200 tokens of command descriptions. The tray icon is one process of about 60 MB.'],
     ['What happens when I open the session again?', 'It loads back into memory: on your first message the app starts it from its transcript, with the same conversation. It takes up memory again, of course.'],
     ['How do I remove everything?', 'Turn off start at sign-in here or in the icon’s menu, choose Exit, then run claude plugin uninstall ramsleeper@ramsleeper.'],
@@ -243,7 +243,7 @@ const isFlagged = c => c.notable;
 let data = null, lastOk = 0, pending = null;
 
 async function api(path, opts = {}) {
-  const r = await fetch(path, { ...opts, headers: { 'X-Ramsleeper-Token': TOKEN, 'Content-Type': 'application/json' } });
+  const r = await fetch(path, { ...opts, headers: { 'X-Ramsleeper-Nonce': NONCE, 'Content-Type': 'application/json' } });
   const j = await r.json().catch(() => ({}));
   if (!r.ok && !('ok' in j)) throw new Error(j.error || r.statusText);
   return j;
@@ -344,6 +344,14 @@ function toast(msg) {
 
 let setup = null;
 
+// Where to get each menu bar app; only shown as links on the setup page.
+const MENUBAR_SITES = {
+  'SwiftBar': 'https://swiftbar.app',
+  'xbar': 'https://xbarapp.com',
+  'Argos (GNOME)': 'https://github.com/p-e-w/argos',
+  'Kargos (KDE)': 'https://github.com/lipido/kargos',
+};
+
 async function loadSetup() {
   try { setup = await api('/api/setup'); renderSetup(); }
   catch (e) { $('steps').innerHTML = `<div class="error">${esc(e.message)}</div>`; }
@@ -391,7 +399,7 @@ function renderSetup() {
   if (s.menubar && s.menubar.length) {
     const any = s.menubar.some(a => a.installed);
     html += step(any, T.menuTitle, `<p>${T.menuHint}</p>` + s.menubar.map(a =>
-      `<p style="margin-top:10px"><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.name)}</a> — ${a.installed ? T.installed : T.notInstalled}</p>${cmdLine(a.command)}`).join(''));
+      `<p style="margin-top:10px"><a href="${esc(MENUBAR_SITES[a.name] || '#')}" target="_blank" rel="noopener">${esc(a.name)}</a> — ${a.installed ? T.installed : T.notInstalled}</p>${cmdLine(a.command)}`).join(''));
   }
   $('steps').innerHTML = html;
   $('faq').innerHTML = T.faq.map(([q, a]) => `<details><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join('');

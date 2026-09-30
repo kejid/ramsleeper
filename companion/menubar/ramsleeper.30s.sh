@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # <xbar.title>RAM Sleeper</xbar.title>
-# <xbar.version>v0.3.7</xbar.version>
+# <xbar.version>v0.3.8</xbar.version>
 # <xbar.desc>Memory used by each Claude Code session, with Unload.</xbar.desc>
 # <xbar.dependencies>node</xbar.dependencies>
 # <swiftbar.hideRunInTerminal>true</swiftbar.hideRunInTerminal>

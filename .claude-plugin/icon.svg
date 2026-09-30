@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="RAM Sleeper">
+  <rect width="256" height="256" rx="56" fill="#D97757"/>
+  <!-- memory module -->
+  <rect x="44" y="84" width="168" height="84" rx="10" fill="#fff"/>
+  <g fill="#fff">
+    <rect x="58" y="172" width="10" height="18" rx="2"/>
+    <rect x="80" y="172" width="10" height="18" rx="2"/>
+    <rect x="102" y="172" width="10" height="18" rx="2"/>
+    <rect x="144" y="172" width="10" height="18" rx="2"/>
+    <rect x="166" y="172" width="10" height="18" rx="2"/>
+    <rect x="188" y="172" width="10" height="18" rx="2"/>
+  </g>
+  <rect x="120" y="160" width="16" height="10" fill="#D97757"/>
+  <!-- sleeping moon on the chip -->
+  <path d="M124 100a26 26 0 1 0 32 36a21 21 0 1 1-32-36z" fill="#D97757"/>
+  <!-- z z -->
+  <path d="M170 44h26l-26 30h26" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M142 56h15l-15 17h15" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" opacity=".85"/>
+</svg>

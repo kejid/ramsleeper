@@ -152,7 +152,7 @@ Right-click the icon for the dashboard, start at sign-in, and exit.
 **macOS and Linux:** install [xbar](https://xbarapp.com) or [SwiftBar](https://swiftbar.app) on macOS, [Argos](https://github.com/p-e-w/argos) on GNOME, or [Kargos](https://github.com/lipido/kargos) on KDE. Then link the plugin script into that app's plugin folder:
 
 ```
-ln -s "$PWD/companion/menubar/ramsleeper.30s.sh" "<plugin folder>/ramsleeper.30s.sh"
+ln -s "<path to this repository>/companion/menubar/ramsleeper.30s.sh" "<plugin folder>/ramsleeper.30s.sh"
 ```
 
 The setup page prints the exact command for the apps it finds. Unload asks for confirmation in a native dialog: `osascript` on macOS, `zenity` or `kdialog` on Linux.
@@ -194,7 +194,7 @@ It writes these:
 - The Windows tray records its process ID in `%LOCALAPPDATA%\ramsleeper\tray.pid`.
 - Turning on start at sign-in adds a `RAM Sleeper` shortcut to your Startup folder and a small launcher, `%LOCALAPPDATA%\ramsleeper\start-tray.ps1`, that starts the newest installed version. Turning it off removes both.
 
-The dashboard is a web server bound to `127.0.0.1` only. Each run uses a new random token that every request must carry, so neither other computers nor other websites open in your browser can use it. It stops 15 minutes after its page is closed.
+The dashboard is a web server bound to `127.0.0.1` only. Each run uses a new random one-time value (a nonce) that every request must carry, so neither other computers nor other websites open in your browser can use it. It stops 15 minutes after its page is closed.
 
 ## License
 

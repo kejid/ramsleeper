@@ -23,7 +23,8 @@ if (process.platform === 'win32') {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const script = path.join(root, 'skills', 'ramsleeper', 'scripts', 'sessions.mjs');
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ramsleeper-smoke-'));
-const env = { ...process.env, CLAUDE_CONFIG_DIR: home };
+// Children get only what they need, not the whole environment.
+const env = { PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR || os.tmpdir(), CLAUDE_CONFIG_DIR: home };
 fs.mkdirSync(path.join(home, 'sessions'));
 fs.mkdirSync(path.join(home, 'projects', 'smoke'), { recursive: true });
 
@@ -114,7 +115,7 @@ try {
   r = run('unload', String(b.pid), `--expect=${idB}`, '--yes', '--force', '--json');
   check('busy session unloads with --force', r.code === 0 && JSON.parse(r.out).ok === true);
 
-  // Dashboard: start it, read the link, and call the API with and without the token.
+  // Dashboard: start it, read the link, and call the API with and without the nonce.
   const srv = spawn(process.execPath, [script, 'serve', '--no-open'], { env, stdio: ['ignore', 'pipe', 'inherit'] });
   started.push(srv.pid);
   const link = await new Promise(resolve => {
@@ -125,13 +126,13 @@ try {
   check('dashboard starts', Boolean(link));
   if (link) {
     const u = new URL(link);
-    const token = u.searchParams.get('t');
+    const nonce = u.searchParams.get('t');
     const page = await fetch(link);
-    check('dashboard page loads with token', page.status === 200);
+    check('dashboard page loads with nonce', page.status === 200);
     const denied = await fetch(`${u.origin}/api/sessions`);
-    check('API refuses requests without token', denied.status === 403);
-    const api = await fetch(`${u.origin}/api/sessions`, { headers: { 'X-Ramsleeper-Token': token } });
-    check('API answers with token', api.status === 200 && Array.isArray((await api.json()).sessions));
+    check('API refuses requests without nonce', denied.status === 403);
+    const api = await fetch(`${u.origin}/api/sessions`, { headers: { 'X-Ramsleeper-Nonce': nonce } });
+    check('API answers with nonce', api.status === 200 && Array.isArray((await api.json()).sessions));
   }
   srv.kill();
 

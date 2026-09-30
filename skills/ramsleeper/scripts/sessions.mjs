@@ -63,7 +63,7 @@ function readProcesses() {
   } else {
     // lstart is a fixed five-field date ("Wed Sep 30 13:22:01 2026") in the C locale.
     const out = execFileSync('ps', ['-axo', 'pid=,ppid=,rss=,lstart=,args='],
-      { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: { ...process.env, LC_ALL: 'C' } });
+      { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: { PATH: process.env.PATH, LC_ALL: 'C' } });
     for (const line of out.split('\n')) {
       const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\w{3}\s+\w{3}\s+\d+\s+[\d:]{8}\s+\d{4})\s+(.*)$/);
       if (!m) continue;
@@ -799,11 +799,11 @@ function trayState() {
 function menubarApps() {
   const exists = p => { try { fs.accessSync(p); return true; } catch { return false; } };
   const apps = process.platform === 'darwin' ? [
-    { name: 'SwiftBar', url: 'https://swiftbar.app', installed: exists('/Applications/SwiftBar.app'), folder: '~/Library/Application Support/SwiftBar/Plugins' },
-    { name: 'xbar', url: 'https://xbarapp.com', installed: exists('/Applications/xbar.app'), folder: '~/Library/Application Support/xbar/plugins' },
+    { name: 'SwiftBar', installed: exists('/Applications/SwiftBar.app'), folder: '~/Library/Application Support/SwiftBar/Plugins' },
+    { name: 'xbar', installed: exists('/Applications/xbar.app'), folder: '~/Library/Application Support/xbar/plugins' },
   ] : process.platform === 'linux' ? [
-    { name: 'Argos (GNOME)', url: 'https://github.com/p-e-w/argos', installed: exists(path.join(HOME, '.local/share/gnome-shell/extensions/argos@pew.worldwidemann.com')), folder: '~/.config/argos' },
-    { name: 'Kargos (KDE)', url: 'https://github.com/lipido/kargos', installed: exists(path.join(HOME, '.local/share/plasma/plasmoids/org.kde.kargos')), folder: '~/.config/kargos' },
+    { name: 'Argos (GNOME)', installed: exists(path.join(HOME, '.local/share/gnome-shell/extensions/argos@pew.worldwidemann.com')), folder: '~/.config/argos' },
+    { name: 'Kargos (KDE)', installed: exists(path.join(HOME, '.local/share/plasma/plasmoids/org.kde.kargos')), folder: '~/.config/kargos' },
   ] : [];
   return apps.map(a => ({ ...a, command: `mkdir -p "${a.folder.replace('~', '$HOME')}" && ln -sf "${MENUBAR_SCRIPT}" "${a.folder.replace('~', '$HOME')}/ramsleeper.30s.sh"` }));
 }
@@ -836,7 +836,7 @@ function setAutostart(on) {
 // ---------------------------------------------------------------- dashboard
 
 // A local web page with the same list and an Unload button. It listens on
-// 127.0.0.1 only, and every request must carry a random token, so neither
+// 127.0.0.1 only, and every request must carry a random nonce, so neither
 // other machines nor other websites open in the browser can use it.
 // Opens the dashboard as a standalone app window (Chromium's --app mode: no
 // tabs or address bar) when Edge or Chrome is installed, else in the default browser.
@@ -866,7 +866,7 @@ function openWindow(link, { appWindow }) {
 async function serve({ port = 0, open = true, asTab = false, keep = false, page = '' }) {
   const http = await import('node:http');
   const crypto = await import('node:crypto');
-  const token = crypto.randomBytes(16).toString('hex');
+  const nonce = crypto.randomBytes(16).toString('hex');
   const htmlPath = path.join(PLUGIN_ROOT, 'skills', 'ramsleeper', 'scripts', 'dashboard.html');
   const IDLE_EXIT_MS = 15 * 60 * 1000;
   let lastSeen = Date.now();
@@ -890,12 +890,12 @@ async function serve({ port = 0, open = true, asTab = false, keep = false, page 
     lastSeen = Date.now();
 
     if (req.method === 'GET' && url.pathname === '/') {
-      if (url.searchParams.get('t') !== token) return send(res, 403, 'Forbidden: open the link printed by ramsleeper.', 'text/plain; charset=utf-8');
-      const html = fs.readFileSync(htmlPath, 'utf8').replace('__TOKEN__', token);
+      if (url.searchParams.get('t') !== nonce) return send(res, 403, 'Forbidden: open the link printed by ramsleeper.', 'text/plain; charset=utf-8');
+      const html = fs.readFileSync(htmlPath, 'utf8').replace('__NONCE__', nonce);
       return send(res, 200, html, 'text/html; charset=utf-8');
     }
-    // API calls must send the token in a header, which a cross-site page cannot do without CORS.
-    if (req.headers['x-ramsleeper-token'] !== token) return send(res, 403, { error: 'bad token' });
+    // API calls must send the nonce in a header, which a cross-site page cannot do without CORS.
+    if (req.headers['x-ramsleeper-nonce'] !== nonce) return send(res, 403, { error: 'bad nonce' });
 
     try {
       if (req.method === 'GET' && url.pathname === '/api/sessions') return send(res, 200, listSessions());
@@ -942,7 +942,7 @@ async function serve({ port = 0, open = true, asTab = false, keep = false, page 
   });
 
   await new Promise((ok, fail) => { server.once('error', fail); server.listen(port, '127.0.0.1', ok); });
-  const link = `http://127.0.0.1:${server.address().port}/?t=${token}${page ? `#${page}` : ''}`;
+  const link = `http://127.0.0.1:${server.address().port}/?t=${nonce}${page ? `#${page}` : ''}`;
   console.log(`RAM Sleeper dashboard: ${link}`);
   console.log(keep ? 'It keeps running until you press Ctrl+C.' : 'It stops by itself 15 minutes after the page is closed. Press Ctrl+C to stop now.');
 
