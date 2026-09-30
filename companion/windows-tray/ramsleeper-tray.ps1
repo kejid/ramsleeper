@@ -75,8 +75,8 @@ $T = if ($RU) { @{
     busyWarn = 'Сессия сейчас работает: текущий ход оборвётся. Переписка до него сохранится.'
     busy = 'работает'; idle = 'ждёт'; mb = 'МБ'; gb = 'ГБ'
     refresh = 'Обновить'; dashboard = 'Открыть панель'; autostart = 'Запускать при входе в Windows'; exit = 'Выход'
-    tip = 'Простаивают {0} из {1} сессий · {2} ({3:0}% памяти)'
-    legend = 'Цифра на значке — сколько сессий простаивает 15+ минут: их можно выгрузить. Цвет — сколько памяти занимают все сессии: зелёный до 15%, жёлтый до 30%, красный больше.'
+    tip = 'Ждут {0} из {1} сессий · {2} ({3:0}% памяти)'
+    legend = 'Цифра на значке — сколько сессий ждут {0}+ мин: их можно выгрузить. Цвет — сколько памяти занимают все сессии: зелёный до 15%, жёлтый до 30%, красный больше.'
     none = 'Запущенных сессий нет'; loading = 'Загрузка…'; updated = 'обновлено'; app = 'приложение Claude'
     confirmTitle = 'Выгрузить сессию?'; frees = 'Освободится около {0} ({1} процессов).'
     flagged = 'Остановится и это (не MCP-сервер):'; keep = 'Переписка останется в транскрипте.'
@@ -87,8 +87,8 @@ $T = if ($RU) { @{
     busyWarn = 'This session is working: the running turn will be cut off. The conversation up to it is kept.'
     busy = 'busy'; idle = 'idle'; mb = 'MB'; gb = 'GB'
     refresh = 'Refresh'; dashboard = 'Open dashboard'; autostart = 'Start at Windows sign-in'; exit = 'Exit'
-    tip = '{0} of {1} sessions idle 15+ min · {2} ({3:0}% of memory)'
-    legend = 'The number on the icon is how many sessions have been idle 15+ minutes, ready to unload. The color is how much memory all sessions hold: green under 15%, amber under 30%, red above.'
+    tip = '{0} of {1} sessions idle · {2} ({3:0}% of memory)'
+    legend = 'The number on the icon is how many sessions have been idle {0}+ minutes, ready to unload. The color is how much memory all sessions hold: green under 15%, amber under 30%, red above.'
     none = 'No running sessions'; loading = 'Loading…'; updated = 'updated'; app = 'Claude app'
     confirmTitle = 'Unload this session?'; frees = 'Frees about {0} ({1} processes).'
     flagged = 'This stops too (not an MCP server):'; keep = 'The conversation stays in its transcript.'
@@ -138,16 +138,21 @@ $FontHead = New-Object Drawing.Font('Segoe UI Semibold', 11)
 
 # ------------------------------------------------------------------ tray icon
 # The icon is drawn at the tray's native size (16 px at 100 % scaling) with
-# one or two crisp digits: how many sessions have been idle 15+ minutes, the
-# ones worth unloading. The background shows how much of the machine's RAM
-# all sessions hold: green under 15 %, amber under 30 %, red above. The
-# tooltip has the exact figures.
-$SleepyAfterMs = 15 * 60 * 1000
+# one or two crisp digits: how many sessions have been idle for a few minutes,
+# the ones worth unloading. The threshold comes from sessions.mjs (3 minutes by
+# default, changed on the setup page or with RAMSLEEPER_IDLE_MINUTES), so the
+# tray, the menu bar and the setup page always agree. The background shows how
+# much of the machine's RAM all sessions hold: green under 15 %, amber under
+# 30 %, red above. The tooltip has the exact figures.
+function Get-IdleMinutes {
+    if ($script:data -and $script:data.idleMinutes -gt 0) { [int]$script:data.idleMinutes } else { 3 }
+}
 
 function Get-SleepySessions {
     $now = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
+    $after = (Get-IdleMinutes) * 60 * 1000
     @($script:data.sessions) | Where-Object {
-        $_ -and $_.status -eq 'idle' -and -not $_.current -and $_.lastActivityAt -and ($now - $_.lastActivityAt) -ge $SleepyAfterMs
+        $_ -and $_.status -eq 'idle' -and -not $_.current -and $_.lastActivityAt -and ($now - $_.lastActivityAt) -ge $after
     }
 }
 $Level = @{
@@ -157,8 +162,8 @@ $Level = @{
     none = [Drawing.Color]::FromArgb(110, 110, 110)
 }
 
-function New-TrayIcon([string]$text, [Drawing.Color]$bg) {
-    $n = [System.Windows.Forms.SystemInformation]::SmallIconSize.Width
+function New-TrayIcon([string]$text, [Drawing.Color]$bg, [int]$Size = 0) {
+    $n = if ($Size -gt 0) { $Size } else { [System.Windows.Forms.SystemInformation]::SmallIconSize.Width }
     $bmp = New-Object Drawing.Bitmap $n, $n
     $g = [Drawing.Graphics]::FromImage($bmp)
     $g.SmoothingMode = 'AntiAlias'
@@ -170,8 +175,8 @@ function New-TrayIcon([string]$text, [Drawing.Color]$bg) {
     $path.AddArc(0, $n - 1 - 2 * $r, 2 * $r, 2 * $r, 90, 90)
     $path.CloseFigure()
     $g.FillPath((New-Object Drawing.SolidBrush($bg)), $path)
-    # Pixel-snapped text without anti-aliasing stays sharp at 16 px.
-    $g.TextRenderingHint = 'SingleBitPerPixelGridFit'
+    # Pixel-snapped text stays sharp at tray size; larger renders can be smooth.
+    $g.TextRenderingHint = if ($n -ge 24) { 'AntiAliasGridFit' } else { 'SingleBitPerPixelGridFit' }
     $font = if ($text.Length -le 1) {
         New-Object Drawing.Font('Segoe UI', [float]($n * 0.94), [Drawing.FontStyle]::Bold, [Drawing.GraphicsUnit]::Pixel)
     } else {
@@ -236,8 +241,9 @@ function Build-Popup {
     if ($script:data) { Add-Label $popup (Format-Size $total) $FontHead $C.fg ($w - 150 - $pad) $y 150 'MiddleRight' | Out-Null }
     $y += 26
     # Explains the tray icon, which is too small to label.
-    $lg = Add-Label $popup $T.legend $FontUi $C.muted $pad $y ($w - 2 * $pad)
-    $lg.Height = [System.Windows.Forms.TextRenderer]::MeasureText($T.legend, $FontUi, (New-Object Drawing.Size(($w - 2 * $pad), 0)), [System.Windows.Forms.TextFormatFlags]::WordBreak).Height + 4
+    $legend = $T.legend -f (Get-IdleMinutes)
+    $lg = Add-Label $popup $legend $FontUi $C.muted $pad $y ($w - 2 * $pad)
+    $lg.Height = [System.Windows.Forms.TextRenderer]::MeasureText($legend, $FontUi, (New-Object Drawing.Size(($w - 2 * $pad), 0)), [System.Windows.Forms.TextFormatFlags]::WordBreak).Height + 4
     $y += $lg.Height + 6
 
     if (-not $script:data) {
@@ -416,13 +422,15 @@ if ($Snapshot) {
     $pb = New-Object Drawing.Bitmap $pw, $ph
     $popup.DrawToBitmap($pb, (New-Object Drawing.Rectangle 0, 0, $pw, $ph))
     $g.DrawImage($pb, 0, 0)
-    # The icon at 6x with nearest-neighbour scaling, in each color, beside the popup.
-    $g.InterpolationMode = 'NearestNeighbor'; $g.PixelOffsetMode = 'Half'
-    $yy = 24
-    foreach ($v in @(@('2', $Level.ok), @('7', $Level.warn), @('12', $Level.high))) {
-        $ic = New-TrayIcon $v[0] $v[1]
-        $g.DrawImage($ic.ToBitmap(), ($pw + 52), $yy, 96, 96)
-        $yy += 120
+    # Beside the popup: the icon in each color, drawn at 32 px (no upscaling), with what the color means.
+    $g.TextRenderingHint = 'ClearTypeGridFit'
+    $cap = New-Object Drawing.SolidBrush($C.muted)
+    $yy = 20
+    foreach ($v in @(@('2', $Level.ok, '< 15% RAM'), @('7', $Level.warn, '< 30% RAM'), @('12', $Level.high, '30%+ RAM'))) {
+        $ic = New-TrayIcon $v[0] $v[1] 32
+        $g.DrawImage($ic.ToBitmap(), ($pw + 28), $yy)
+        $g.DrawString($v[2], $FontUi, $cap, ($pw + 70), ($yy + 7))
+        $yy += 52
     }
     $shot.Save($Snapshot, [Drawing.Imaging.ImageFormat]::Png)
     $popup.Close()

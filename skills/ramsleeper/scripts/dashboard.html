@@ -76,6 +76,9 @@
   .cmd button { padding: 3px 10px; font-size: 13px; }
   ul.cmds { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }
   ul.cmds li { margin: 3px 0; }
+  .seg { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .seg button { padding: 4px 12px; font-size: 13px; }
+  .seg button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
   .faq details { border-bottom: 1px solid var(--line); padding: 12px 16px; }
   .faq details:last-child { border-bottom: 0; }
   .faq summary { cursor: pointer; font-weight: 600; }
@@ -164,10 +167,13 @@ Object.assign(T, RU ? {
   cmdHint: 'Или просто спросите Claude: «какая сессия ест больше всего памяти?», «выгрузи те, что простаивают с утра».',
   cmds: [['/ramsleeper:sessions', 'список сессий с памятью'], ['/ramsleeper:sessions unload 3', 'выгрузить сессию из строки 3, с подтверждением'],
     ['/ramsleeper:dashboard', 'эта панель'], ['/ramsleeper:tray', 'значок в трее или строке меню'], ['/ramsleeper:setup', 'эта страница настройки']],
-  trayTitle: 'Значок в трее Windows', trayOn: 'Запущен. Цифра — сколько сессий простаивает 15+ минут, цвет — сколько памяти занимают все сессии.',
+  trayTitle: 'Значок в трее Windows', trayOn: 'Запущен. Цифра — сколько сессий ждут вашего сообщения (порог ниже), цвет — сколько памяти занимают все сессии.',
   trayOff: 'Не запущен. Клик по значку открывает список сессий с кнопками выгрузки.', trayStart: 'Запустить',
   autoTitle: 'Запуск при входе в Windows', autoOn: 'Включён: значок появится сам после перезагрузки.', autoOff: 'Выключен.',
   autoEnable: 'Включить', autoDisable: 'Выключить',
+  idleTitle: 'Когда сессия считается ждущей', min_: 'мин',
+  idleHint: m => `Сессия, которая ждёт вашего сообщения ${m}+ мин, попадает в цифру на значке трея и в строку меню: её можно выгрузить.`,
+  idleEnv: 'Сейчас значение задано переменной RAMSLEEPER_IDLE_MINUTES и здесь не меняется.',
   menuTitle: 'Строка меню', menuHint: 'Установите одно из приложений и выполните команду в терминале.',
   installed: 'установлено', notInstalled: 'не установлено', copy: 'Копировать', copied: 'Скопировано',
   faq: [
@@ -188,10 +194,13 @@ Object.assign(T, RU ? {
   cmdHint: 'Or just ask Claude, for example "which session uses the most memory?" or "unload the ones idle since this morning".',
   cmds: [['/ramsleeper:sessions', 'list sessions with their memory'], ['/ramsleeper:sessions unload 3', 'unload the session on row 3, after you confirm'],
     ['/ramsleeper:dashboard', 'this dashboard'], ['/ramsleeper:tray', 'tray or menu bar icon'], ['/ramsleeper:setup', 'this setup page']],
-  trayTitle: 'Windows tray icon', trayOn: 'Running. The number is how many sessions have been idle 15+ minutes; the color is how much memory all sessions hold.',
+  trayTitle: 'Windows tray icon', trayOn: 'Running. The number is how many sessions are waiting for your message (threshold below); the color is how much memory all sessions hold.',
   trayOff: 'Not running. Clicking the icon opens the session list with Unload buttons.', trayStart: 'Start',
   autoTitle: 'Start at Windows sign-in', autoOn: 'On: the icon comes back by itself after a restart.', autoOff: 'Off.',
   autoEnable: 'Turn on', autoDisable: 'Turn off',
+  idleTitle: 'When a session counts as idle', min_: 'min',
+  idleHint: m => `A session that has waited for your message for ${m}+ minutes is counted on the tray icon and in the menu bar as ready to unload.`,
+  idleEnv: 'The RAMSLEEPER_IDLE_MINUTES environment variable sets this now, so it can’t be changed here.',
   menuTitle: 'Menu bar', menuHint: 'Install one of these apps, then run the command in a terminal.',
   installed: 'installed', notInstalled: 'not installed', copy: 'Copy', copied: 'Copied',
   faq: [
@@ -344,6 +353,10 @@ function renderSetup() {
       s.tray.running ? '' : `<button data-act="tray">${T.trayStart}</button>`);
     html += step(s.tray.autostart, T.autoTitle, `<p>${s.tray.autostart ? T.autoOn : T.autoOff}</p>`,
       `<button data-act="${s.tray.autostart ? 'autostart-off' : 'autostart-on'}">${s.tray.autostart ? T.autoDisable : T.autoEnable}</button>`);
+  }
+  if (s.idle) {
+    const pick = s.idle.choices.map(m => `<button data-act="idle-${m}" class="${m === s.idle.minutes ? 'on' : ''}" aria-pressed="${m === s.idle.minutes}" ${s.idle.fromEnv ? 'disabled' : ''}>${m} ${T.min_}</button>`).join('');
+    html += step(null, T.idleTitle, `<p>${esc(T.idleHint(s.idle.minutes))}</p>${s.idle.fromEnv ? `<p>${esc(T.idleEnv)}</p>` : ''}<div class="seg">${pick}</div>`);
   }
   if (s.menubar && s.menubar.length) {
     const any = s.menubar.some(a => a.installed);
