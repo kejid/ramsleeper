@@ -370,7 +370,21 @@ function resolve(sessions, target) {
 function sleep(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
 
 function alive(pid) {
-  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+  try { process.kill(pid, 0); } catch (e) { return e.code === 'EPERM'; }
+  return IS_WIN || !isZombie(pid);
+}
+
+// On macOS and Linux a process that has exited stays a zombie until its parent
+// collects it, and signal 0 still reaches it. It holds no memory, so it counts
+// as stopped.
+function isZombie(pid) {
+  try {
+    if (process.platform === 'linux') {
+      const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+      return stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3) === 'Z';
+    }
+    return execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).trim().startsWith('Z');
+  } catch { return false; }
 }
 
 // Stops exactly the processes shown in the plan: the session first, so it
@@ -618,7 +632,9 @@ function xbarOutput(data) {
   const total = sessions.reduce((t, s) => t + s.memBytes, 0);
   const share = systemMemBytes ? total / systemMemBytes : 0;
   const color = share >= 0.30 ? ' color=#d0433a' : share >= 0.15 ? ' color=#d28c14' : '';
-  const lines = [`${size(total)} | sfimage=memorychip${color}`, '---',
+  // Sessions idle for 15+ minutes are the ones worth unloading; the Windows tray counts them the same way.
+  const sleepy = sessions.filter(s => s.status === 'idle' && !s.current && s.lastActivityAt && Date.now() - s.lastActivityAt >= 15 * 60000).length;
+  const lines = [`${sleepy ? `${sleepy} ${L.idle} · ` : ''}${size(total)} | sfimage=memorychip${color}`, '---',
     `${L.sessions}: ${sessions.length} · ${size(total)} (${Math.round(share * 100)}% ${L.ram}) | disabled=true`, '---'];
   if (!sessions.length) lines.push(`${L.none} | disabled=true`);
   for (const s of sessions) {

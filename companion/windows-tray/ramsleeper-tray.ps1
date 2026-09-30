@@ -75,8 +75,8 @@ $T = if ($RU) { @{
     busyWarn = 'Сессия сейчас работает: текущий ход оборвётся. Переписка до него сохранится.'
     busy = 'работает'; idle = 'ждёт'; mb = 'МБ'; gb = 'ГБ'
     refresh = 'Обновить'; dashboard = 'Открыть панель'; autostart = 'Запускать при входе в Windows'; exit = 'Выход'
-    tip = 'Сессии Claude Code: {0} ({1:0}% памяти), {2} шт.'
-    legend = 'Цифра на значке — сколько гигабайт занимают все сессии. Цвет: зелёный до 15% памяти, жёлтый до 30%, красный больше.'
+    tip = 'Простаивают {0} из {1} сессий · {2} ({3:0}% памяти)'
+    legend = 'Цифра на значке — сколько сессий простаивает 15+ минут: их можно выгрузить. Цвет — сколько памяти занимают все сессии: зелёный до 15%, жёлтый до 30%, красный больше.'
     none = 'Запущенных сессий нет'; loading = 'Загрузка…'; updated = 'обновлено'; app = 'приложение Claude'
     confirmTitle = 'Выгрузить сессию?'; frees = 'Освободится около {0} ({1} процессов).'
     flagged = 'Остановится и это (не MCP-сервер):'; keep = 'Переписка останется в транскрипте.'
@@ -87,8 +87,8 @@ $T = if ($RU) { @{
     busyWarn = 'This session is working: the running turn will be cut off. The conversation up to it is kept.'
     busy = 'busy'; idle = 'idle'; mb = 'MB'; gb = 'GB'
     refresh = 'Refresh'; dashboard = 'Open dashboard'; autostart = 'Start at Windows sign-in'; exit = 'Exit'
-    tip = 'Claude Code sessions: {0} ({1:0}% of memory), {2}'
-    legend = 'The number on the icon is gigabytes held by all sessions. Color: green under 15% of memory, amber under 30%, red above.'
+    tip = '{0} of {1} sessions idle 15+ min · {2} ({3:0}% of memory)'
+    legend = 'The number on the icon is how many sessions have been idle 15+ minutes, ready to unload. The color is how much memory all sessions hold: green under 15%, amber under 30%, red above.'
     none = 'No running sessions'; loading = 'Loading…'; updated = 'updated'; app = 'Claude app'
     confirmTitle = 'Unload this session?'; frees = 'Frees about {0} ({1} processes).'
     flagged = 'This stops too (not an MCP server):'; keep = 'The conversation stays in its transcript.'
@@ -138,9 +138,18 @@ $FontHead = New-Object Drawing.Font('Segoe UI Semibold', 11)
 
 # ------------------------------------------------------------------ tray icon
 # The icon is drawn at the tray's native size (16 px at 100 % scaling) with
-# whole gigabytes as one or two crisp digits; the exact figure is in the
-# tooltip. The background shows how much of the machine's RAM the sessions
-# hold: green under 15 %, amber under 30 %, red above.
+# one or two crisp digits: how many sessions have been idle 15+ minutes, the
+# ones worth unloading. The background shows how much of the machine's RAM
+# all sessions hold: green under 15 %, amber under 30 %, red above. The
+# tooltip has the exact figures.
+$SleepyAfterMs = 15 * 60 * 1000
+
+function Get-SleepySessions {
+    $now = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
+    @($script:data.sessions) | Where-Object {
+        $_ -and $_.status -eq 'idle' -and -not $_.current -and $_.lastActivityAt -and ($now - $_.lastActivityAt) -ge $SleepyAfterMs
+    }
+}
 $Level = @{
     ok   = [Drawing.Color]::FromArgb(46, 160, 67)
     warn = [Drawing.Color]::FromArgb(210, 140, 20)
@@ -228,8 +237,8 @@ function Build-Popup {
     $y += 26
     # Explains the tray icon, which is too small to label.
     $lg = Add-Label $popup $T.legend $FontUi $C.muted $pad $y ($w - 2 * $pad)
-    $lg.Height = 34
-    $y += 40
+    $lg.Height = [System.Windows.Forms.TextRenderer]::MeasureText($T.legend, $FontUi, (New-Object Drawing.Size(($w - 2 * $pad), 0)), [System.Windows.Forms.TextFormatFlags]::WordBreak).Height + 4
+    $y += $lg.Height + 6
 
     if (-not $script:data) {
         Add-Label $popup $T.loading $FontUi $C.muted $pad $y 300 | Out-Null; $y += 28
@@ -243,6 +252,10 @@ function Build-Popup {
             $y += 8
             Add-Label $popup $s.title $FontBold $C.fg $pad $y ($w - 2 * $pad - 100) | Out-Null
             $status = if ($s.status -eq 'busy') { $T.busy } else { $T.idle }
+            if ($s.status -ne 'busy' -and $s.lastActivityAt) {
+                $mins = ([DateTimeOffset]::Now.ToUnixTimeMilliseconds() - $s.lastActivityAt) / 60000
+                if ($mins -ge 1) { $status += ' ' + $(if ($mins -lt 90) { '{0:0} min' -f $mins } elseif ($mins -lt 2160) { '{0:0} h' -f ($mins / 60) } else { '{0:0} d' -f ($mins / 1440) }) }
+            }
             $info = '{0} · {1} {2} · ' -f (Format-Size $s.memBytes), $s.processCount, $T.procs
             $l = Add-Label $popup ($info + $status) $FontUi $C.muted $pad ($y + 20) 230
             if ($s.status -eq 'busy') { $l.ForeColor = $C.busy }
@@ -322,14 +335,14 @@ $timer.Add_Tick({
             $script:data = $out | ConvertFrom-Json
             $script:updatedAt = Get-Date
             $total = (@($script:data.sessions) | Measure-Object memBytes -Sum).Sum
-            $gb = [Math]::Round($total / 1GB)
-            $label = if ($gb -gt 99) { '99' } else { [string][int]$gb }
+            $sleepy = @(Get-SleepySessions).Count
+            $label = if ($sleepy -gt 99) { '99' } else { [string]$sleepy }
             $share = if ($script:data.systemMemBytes) { $total / $script:data.systemMemBytes } else { 0 }
             $bg = if ($share -ge 0.30) { $Level.high } elseif ($share -ge 0.15) { $Level.warn } else { $Level.ok }
             $old = $tray.Icon
             $tray.Icon = New-TrayIcon $label $bg
             $old.Dispose()
-            $tip = $T.tip -f (Format-Size $total), ($share * 100), @($script:data.sessions).Count
+            $tip = $T.tip -f $sleepy, @($script:data.sessions).Count, (Format-Size $total), ($share * 100)
             $tray.Text = $tip.Substring(0, [Math]::Min(63, $tip.Length))
             if ($popup.Visible) { Build-Popup }
         } catch { }

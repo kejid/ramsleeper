@@ -27,7 +27,7 @@ In the Claude desktop app the list appears as a card in the chat. Its buttons as
 
 ![Chat card with memory per session and Unload buttons](docs/images/chat-widget.png)
 
-The Windows tray icon shows the whole gigabytes held by all sessions. Its color shows their share of your RAM: green below 15 %, amber below 30 %, red above. Click it for the list:
+The number on the Windows tray icon is how many sessions have been idle for 15 minutes or more, which are the ones worth unloading. The color shows how much of your RAM all sessions hold: green below 15 %, amber below 30 %, red above. Hover over the icon for the exact figures, or click it for the list:
 
 ![Tray popup with the session list, and the tray icon in green, amber, and red](docs/images/tray-popup.png)
 
@@ -69,22 +69,25 @@ Then run `/ramsleeper:setup`. To try it without installing, start Claude Code wi
 
 | | Windows 10/11 | macOS | Linux |
 |---|---|---|---|
-| Session list and memory | ✅ tested | ⚠️ untested | ⚠️ untested |
-| Unload and resume in the Claude desktop app | ✅ tested | ⚠️ untested | not applicable |
-| Unload and resume for terminal sessions | ✅ same code path | ⚠️ untested | ⚠️ untested |
-| Dashboard | ✅ tested | ⚠️ untested | ⚠️ untested |
-| Tray or menu bar | ✅ tray icon | ⚠️ xbar or SwiftBar, untested | ⚠️ Argos (GNOME) or Kargos (KDE), untested |
+| Session list and memory | ✅ tested | ⚠️ untested | 🧪 smoke test passes |
+| Unload (graceful, then forced) | ✅ tested | ⚠️ untested | 🧪 smoke test passes |
+| Resume in the Claude desktop app | ✅ tested | ⚠️ untested | not applicable |
+| Dashboard | ✅ tested | ⚠️ untested | 🧪 smoke test passes |
+| Tray or menu bar | ✅ tray icon | ⚠️ xbar or SwiftBar, untested | 🧪 menu output passes; ⚠️ Argos or Kargos and dialogs untested |
 
-Tested on Windows 11 with Claude desktop 2.16120 and Claude Code 2.1.284. A session unloaded this way came back on its next message, with a new process resuming the same session ID and the whole conversation.
+**✅ tested** on Windows 11 with Claude desktop 2.16120 and Claude Code 2.1.284 against real sessions. A session unloaded this way came back on its next message, with a new process resuming the same session ID and the whole conversation.
+
+**🧪 smoke test passes** means `tests/smoke.mjs` passes on Debian 12 with Node 20 in Docker. The test uses fake sessions; nothing was tried on a Linux desktop with real Claude Code sessions. On Linux, `ps` must come from procps, which desktop distributions ship; BusyBox `ps` is not enough.
 
 ### Help wanted: macOS and Linux testers
 
-The macOS and Linux code is written to the same rules as the Windows code, but it has never run on a real Mac or Linux machine. If you can try it, please open an issue with your OS and version and what happened for each of these:
+The macOS code has never run on a Mac, and the Linux code has only passed an automated test in a container. If you can try it, please open an issue with your OS and version and what happened for each of these:
 
-1. `node skills/ramsleeper/scripts/sessions.mjs list` shows your sessions with plausible memory figures.
-2. `node skills/ramsleeper/scripts/sessions.mjs unload <pid>` previews the right processes. Run it with `--yes` on a throwaway session, then resume that session.
-3. The menu bar item appears through xbar, SwiftBar, Argos, or Kargos (see below), and its Unload item asks for confirmation.
-4. `/ramsleeper:dashboard` opens and refreshes.
+1. `node tests/smoke.mjs` passes. It starts fake sessions in a temporary folder and never touches real ones; paste its output.
+2. `node skills/ramsleeper/scripts/sessions.mjs list` shows your sessions with plausible memory figures.
+3. `node skills/ramsleeper/scripts/sessions.mjs unload <pid>` previews the right processes. Run it with `--yes` on a throwaway session, then resume that session.
+4. The menu bar item appears through xbar, SwiftBar, Argos, or Kargos (see below), and its Unload item asks for confirmation.
+5. `/ramsleeper:dashboard` opens and refreshes.
 
 `RAMSLEEPER_DEMO=1` shows made-up sessions, so you can check the interface without touching real ones.
 
