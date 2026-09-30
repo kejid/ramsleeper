@@ -103,6 +103,30 @@ The number on the icon is how many sessions have been idle for 15 minutes or mor
 
 **🧪 smoke test passes** means `tests/smoke.mjs` passes on Debian 12 with Node 18 and Node 20 in Docker. The test uses fake sessions; nothing was tried on a Linux desktop with real Claude Code sessions. On Linux, `ps` must come from procps, which desktop distributions ship; BusyBox `ps` is not enough.
 
+### Test log
+
+Results for version 0.3.5, tested on 2026-09-30.
+
+**Windows 11 Pro (build 26200), Claude desktop 2.16120, Claude Code 2.1.284, Node 24.16, real sessions:**
+
+| Check | Result |
+|---|---|
+| Sessions matched to their desktop titles, process trees, and memory; figures consistent with Task Manager's private working set | ✅ |
+| Real session unloaded, then reopened: it resumed the same session ID and still knew a code word it had been told before | ✅ |
+| Graceful stop (console Ctrl+C) of a desktop session: no "Claude Code crashed" banner in the app | ✅ |
+| Hard stop without the graceful step: the app shows "Claude Code crashed"; **Try again** resumes with the conversation intact | ✅ as expected |
+| Refusals: this session, a busy session without `--force`, a wrong `--expect`, a row number, a too-short ID prefix | ✅ |
+| Fake desktop session: stopped gracefully, child stopped, pid file removed | ✅ |
+| Fake terminal session: no Ctrl+C sent, stopped by force, child stopped | ✅ |
+| Busy fake session: preview shows the warning; unload needs `--force` | ✅ |
+| Tray icon, popup, and start at sign-in; dashboard; setup page; chat widget, checked by hand | ✅ |
+
+**Debian 12 in Docker, Node 18.20.8 and Node 20.20.2:** `tests/smoke.mjs` passes all 25 checks on both. The checks cover listing, stale pid files, children and memory, notable-process marking, the xbar menu, preview, refusals, graceful unload, `--force`, the dashboard and its token, and the menu bar script. Along the way the test found a real bug: exited sessions lingered as zombies and were reported as still running. That is fixed.
+
+**macOS:** not tested.
+
+**Known limit:** a busy session may treat Ctrl+C as "interrupt this turn" and keep running. After five seconds it is stopped by force, and the desktop app then shows the crash banner. The conversation is still intact.
+
 ### Help wanted: macOS and Linux testers
 
 The macOS code has never run on a Mac, and the Linux code has only passed an automated test in a container. If you can try it, please open an issue with your OS and version and what happened for each of these:
