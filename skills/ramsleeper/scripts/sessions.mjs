@@ -204,7 +204,46 @@ function firstPrompt(file) {
 
 // ---------------------------------------------------------------- sessions
 
+// RAMSLEEPER_DEMO=1 replaces real sessions with made-up ones, for screenshots
+// and trying the interface; nothing is ever stopped in demo mode.
+const DEMO = process.env.RAMSLEEPER_DEMO === '1';
+
+function demoData() {
+  const MB = 1048576, now = Date.now();
+  const kid = (pid, name, cmd, mb, notable = false) => ({ pid, name, memBytes: mb * MB, cmd, notable });
+  const mcp = base => [
+    kid(base + 1, 'node.exe', '@modelcontextprotocol/server-sequential-thinking', 64),
+    kid(base + 2, 'node.exe', '@playwright/mcp', 102),
+    kid(base + 3, 'chrome.exe', 'chrome', 188),
+    kid(base + 4, 'cmd.exe', '@modelcontextprotocol/server-filesystem', 3),
+    kid(base + 5, 'conhost.exe', '0x4', 1),
+  ];
+  const mk = (n, pid, title, cwd, status, idleMin, ownMb, children, extra = {}) => {
+    const s = {
+      pid, sessionId: `${pid.toString(16).padStart(8, '0')}-6d1e-4c0a-9b1a-5e5510a5e55a`, hostSessionId: `local_demo-${pid}`,
+      title, cwd, entrypoint: 'claude-desktop', status, startedAt: now - (idleMin + 90) * 60000,
+      lastActivityAt: now - idleMin * 60000, transcript: `~/.claude/projects/demo/${pid}.jsonl`,
+      ownMemBytes: ownMb * MB, children, current: false, ...extra,
+    };
+    s.memBytes = s.ownMemBytes + children.reduce((t, c) => t + c.memBytes, 0);
+    s.processCount = 1 + children.length;
+    return s;
+  };
+  const sessions = [
+    mk(1, 41208, 'Refactor the checkout flow', 'C:\\Projects\\shop', 'idle', 190, 612, [...mcp(41208), kid(41220, 'node.exe', 'vite', 236, true)]),
+    mk(2, 38112, 'Fix flaky payment tests', 'C:\\Projects\\shop', 'busy', 0, 544, mcp(38112)),
+    mk(3, 29904, 'Write the Q3 release notes', 'C:\\Projects\\docs', 'idle', 55, 402, mcp(29904).slice(0, 2)),
+    mk(4, 17444, 'RAM Sleeper plugin', 'C:\\Projects\\ramsleeper', 'busy', 0, 388, mcp(17444).slice(0, 2), { current: true }),
+    mk(5, 12020, 'Explore the analytics schema', 'C:\\Projects\\analytics', 'idle', 1440, 296, mcp(12020).slice(0, 1)),
+    mk(6, 9312, 'Translate onboarding emails', 'C:\\Projects\\marketing', 'idle', 8, 211, []),
+  ];
+  sessions.sort((a, b) => b.memBytes - a.memBytes).forEach((s, i) => { s.n = i + 1; });
+  return { sessions, app: { pid: 4000, memBytes: 1720 * MB, processCount: 14 }, platform: process.platform,
+    systemMemBytes: 32 * 1024 * MB, memMetric: IS_WIN ? 'private working set' : 'RSS', demo: true };
+}
+
 function collect() {
+  if (DEMO) return demoData();
   const procs = readProcesses();
   const idx = childrenIndex(procs);
   const desktop = loadDesktopMeta();
@@ -240,7 +279,7 @@ function collect() {
       memBytes: proc.mem + kids.reduce((s, k) => s + k.mem, 0),
       ownMemBytes: proc.mem,
       processCount: 1 + kids.length,
-      children: kids.map(k => ({ pid: k.pid, name: k.name, memBytes: k.mem, cmd: shortCmd(k.cmd), notable: isNotable(k) })),
+      children: kids.map(k => ({ pid: k.pid, name: k.name, memBytes: k.mem, cmd: shortCmd(k.cmd), notable: isNotable(k, proc, procs) })),
       current: myChain.has(info.pid),
     });
   }
@@ -266,9 +305,15 @@ function collect() {
 const MCP_RE = /mcp|modelcontextprotocol/i;
 const DEV_RE = /\b(vite|next|nuxt|astro|remix|webpack|parcel|esbuild|nodemon|tsx|ts-node|jest|vitest|postgres|mysqld|mongod|redis-server|docker|uvicorn|gunicorn|flask|django|rails|php|java)\b/i;
 const PLUMBING_RE = /^(conhost|cmd|powershell|pwsh|bash|sh|zsh|fish|uv|uvx|npx|npm|pnpm|yarn|node|bun|deno|git|python\d?(\.\d+)?)(\.exe)?$/i;
-function isNotable(p) {
+function isNotable(p, root, procs) {
   if (DEV_RE.test(p.cmd)) return true;
-  return !MCP_RE.test(p.cmd) && !PLUMBING_RE.test(p.name);
+  if (MCP_RE.test(p.cmd) || PLUMBING_RE.test(p.name)) return false;
+  // Anything an MCP server started (a browser driven by a Playwright server,
+  // say) belongs to that server and is routine too.
+  for (let a = procs.get(p.ppid), hops = 0; a && a.pid !== root.pid && hops < 20; a = procs.get(a.ppid), hops++) {
+    if (MCP_RE.test(a.cmd)) return false;
+  }
+  return true;
 }
 
 function shortCmd(cmd) {
@@ -411,6 +456,7 @@ function unloadSession(target, { yes = false, force = false, expectSessionId = n
 
   const plan = planFor(s);
   if (!yes) return { ok: true, dryRun: true, plan, session: s };
+  if (DEMO) return { ok: true, unloaded: true, graceful: true, freedBytes: s.memBytes, survivors: [], plan, session: s, demo: true };
 
   const graceful = killTree(s);
   const survivors = [s.pid, ...s.children.map(c => c.pid)].filter(alive);

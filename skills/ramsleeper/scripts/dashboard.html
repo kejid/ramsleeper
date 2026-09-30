@@ -235,6 +235,12 @@ async function refresh() {
     data = await api('/api/sessions');
     lastOk = Date.now();
     render();
+    // A link ending in #unload-<pid> opens that session's confirmation once.
+    const deep = location.hash.match(/^#unload-(\d+)$/);
+    if (deep && !$('confirm').open) {
+      history.replaceState(null, '', location.pathname + location.search);
+      document.querySelector(`button[data-pid="${deep[1]}"]`)?.click();
+    }
   } catch (e) {
     if (!data) $('list').innerHTML = `<div class="error">${esc(e.message)}</div>`;
     else $('updated').textContent = T.gone;

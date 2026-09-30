@@ -8,7 +8,9 @@
 # Run:  powershell -NoProfile -STA -WindowStyle Hidden -File ramsleeper-tray.ps1
 #       ... -File ramsleeper-tray.ps1 -Autostart on|off   (set start at sign-in and exit)
 
-param([ValidateSet('on', 'off')][string]$Autostart)
+# -Snapshot <png> draws the popup (and the icon in its three colors next to it)
+# into an image and exits; used for the README screenshots.
+param([ValidateSet('on', 'off')][string]$Autostart, [string]$Snapshot)
 
 $ErrorActionPreference = 'Stop'
 
@@ -53,10 +55,12 @@ Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 # One tray icon per user: a second copy just exits.
-$mutex = New-Object System.Threading.Mutex($false, 'Local\RamSleeperTray')
-if (-not $mutex.WaitOne(0)) { exit }
-New-Item -ItemType Directory -Force $StateDir | Out-Null
-Set-Content -Path $PidFile -Value $PID
+if (-not $Snapshot) {
+    $mutex = New-Object System.Threading.Mutex($false, 'Local\RamSleeperTray')
+    if (-not $mutex.WaitOne(0)) { exit }
+    New-Item -ItemType Directory -Force $StateDir | Out-Null
+    Set-Content -Path $PidFile -Value $PID
+}
 
 $Script = Join-Path $PSScriptRoot '..\..\skills\ramsleeper\scripts\sessions.mjs' | Resolve-Path | ForEach-Object Path
 $Node = (Get-Command node -ErrorAction SilentlyContinue).Source
@@ -174,7 +178,7 @@ function New-TrayIcon([string]$text, [Drawing.Color]$bg) {
 $tray = New-Object System.Windows.Forms.NotifyIcon
 $tray.Icon = New-TrayIcon '·' $Level.none
 $tray.Text = 'RAM Sleeper'
-$tray.Visible = $true
+$tray.Visible = -not $Snapshot
 
 # ------------------------------------------------------------------ popup
 $popup = New-Object System.Windows.Forms.Form
@@ -385,9 +389,35 @@ $tray.Add_MouseClick({
     if ($e.Button -eq 'Left') { if ($popup.Visible) { $popup.Hide() } else { Show-Popup } }
 })
 
+if ($Snapshot) {
+    $script:data = Invoke-Sessions @('list', '--json') | ConvertFrom-Json
+    $script:updatedAt = Get-Date
+    Build-Popup
+    $popup.Location = New-Object Drawing.Point(-4000, -4000)
+    $popup.Show()
+    [System.Windows.Forms.Application]::DoEvents()
+    $pw = $popup.Width; $ph = $popup.Height
+    $shot = New-Object Drawing.Bitmap($pw + 200), ([Math]::Max($ph, 400))
+    $g = [Drawing.Graphics]::FromImage($shot)
+    $g.Clear($C.bg)
+    $pb = New-Object Drawing.Bitmap $pw, $ph
+    $popup.DrawToBitmap($pb, (New-Object Drawing.Rectangle 0, 0, $pw, $ph))
+    $g.DrawImage($pb, 0, 0)
+    # The icon at 6x with nearest-neighbour scaling, in each color, beside the popup.
+    $g.InterpolationMode = 'NearestNeighbor'; $g.PixelOffsetMode = 'Half'
+    $yy = 24
+    foreach ($v in @(@('2', $Level.ok), @('7', $Level.warn), @('12', $Level.high))) {
+        $ic = New-TrayIcon $v[0] $v[1]
+        $g.DrawImage($ic.ToBitmap(), ($pw + 52), $yy, 96, 96)
+        $yy += 120
+    }
+    $shot.Save($Snapshot, [Drawing.Imaging.ImageFormat]::Png)
+    $popup.Close()
+    exit 0
+}
 Start-Refresh
 [System.Windows.Forms.Application]::Run()
 $tray.Dispose()
 $rs.Close()
 Remove-Item $PidFile -ErrorAction SilentlyContinue
-$mutex.ReleaseMutex()
+if ($mutex) { $mutex.ReleaseMutex() }
