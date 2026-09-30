@@ -227,6 +227,7 @@ async function api(path, opts = {}) {
 }
 
 async function refresh() {
+  if (!$('view-setup').hidden) loadSetup();
   try {
     data = await api('/api/sessions');
     lastOk = Date.now();

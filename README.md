@@ -6,6 +6,8 @@ This is useful when you keep many sessions open, for example in the Claude deskt
 
 ## Use it
 
+Start with `/session-ram:setup`. It opens a local page that checks Node.js, lists the commands, starts the tray icon or gives the menu bar setup for your system, and answers common questions.
+
 In any Claude Code session:
 
 - `/session-ram:sessions` lists the sessions with their memory, process count, status (busy or idle), and last activity. In the Claude desktop app the list appears as an interactive card in the chat; in a terminal it is a table.
@@ -66,7 +68,7 @@ Tested on Windows 11 with the Claude desktop app and Claude Code 2.1: a session 
 
 ## Data
 
-The plugin runs locally and sends nothing over the network. It reads `~/.claude/sessions`, the transcripts' file names and first lines under `~/.claude/projects`, the Claude desktop app's session titles, and the process list. It writes nothing except when you ask for the Windows tray to start at sign-in, which creates one shortcut in your Startup folder. The dashboard is a web server bound to `127.0.0.1` only. Each run uses a new random token, and every request must carry it, so other computers and other websites open in your browser cannot use it. The server stops 15 minutes after its page is closed.
+The plugin runs locally and sends nothing over the network. It reads `~/.claude/sessions`, the transcripts' file names and first lines under `~/.claude/projects`, the Claude desktop app's session titles, and the process list. The Windows tray writes its process ID to `%LOCALAPPDATA%\session-ram\tray.pid`. Turning on start at sign-in adds a `Session RAM` shortcut to your Startup folder and a small launcher, `%LOCALAPPDATA%\session-ram\start-tray.ps1`, that starts the newest installed version of the tray. Turning it off removes both. The dashboard is a web server bound to `127.0.0.1` only. Each run uses a new random token, and every request must carry it, so other computers and other websites open in your browser cannot use it. The server stops 15 minutes after its page is closed.
 
 ## License
 
