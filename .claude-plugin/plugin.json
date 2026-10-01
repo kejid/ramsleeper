@@ -1,7 +1,7 @@
 {
   "name": "ramsleeper",
   "displayName": "RAM Sleeper",
-  "version": "0.3.12",
+  "version": "0.3.13",
   "description": "For Claude Code. See how much memory each running Claude Code session uses, including its MCP servers and other child processes, and unload idle sessions without losing them so you can resume them later. Runs a local Node.js script that reads the process list and, only after you confirm, stops the chosen session's processes; nothing is sent over the network.",
   "author": { "name": "Artyom", "url": "https://github.com/kejid" },
   "homepage": "https://github.com/kejid/ramsleeper",

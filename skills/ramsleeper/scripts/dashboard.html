@@ -32,6 +32,18 @@
   td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
   .title { font-weight: 600; overflow-wrap: anywhere; }
   .cwd { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+  button.more { display: flex; align-items: baseline; gap: 6px; width: 100%; padding: 0; border: 0; background: none; text-align: left; color: var(--text); }
+  button.more:hover:not(:disabled) { color: var(--accent); }
+  .chev { color: var(--muted); font-size: 12px; width: 10px; flex: none; }
+  tr.detail td { background: var(--bg); padding: 12px 16px 14px 28px; }
+  .part { display: grid; grid-template-columns: minmax(0, 1fr) 150px 150px; gap: 12px; align-items: center; padding: 3px 0; font-size: 14px; }
+  .plabel { overflow-wrap: anywhere; }
+  .kind { margin-left: 8px; color: var(--muted); font-size: 12px; }
+  .pbar { height: 5px; background: var(--bar); border-radius: 3px; overflow: hidden; }
+  .pbar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  .pnum { color: var(--muted); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .hint { margin: 10px 0 0; font-size: 13px; color: var(--warn); }
+  @media (max-width: 720px) { .part { grid-template-columns: minmax(0, 1fr) auto; } .pbar { display: none; } }
   .you { display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: 99px; font-size: 11px; font-weight: 600; background: var(--accent-soft); color: var(--accent); }
   .ram { min-width: 150px; }
   .bar { height: 6px; background: var(--bar); border-radius: 3px; margin-top: 5px; overflow: hidden; }
@@ -178,6 +190,9 @@ Object.assign(T, RU ? {
   trayOff: 'Не запущен. Клик по значку открывает список сессий с кнопками выгрузки.', trayStart: 'Запустить',
   autoTitle: 'Запуск при входе в Windows', autoOn: 'Включён: значок появится сам после перезагрузки.', autoOff: 'Выключен.',
   autoEnable: 'Включить', autoDisable: 'Выключить',
+  inside: 'Показать, из чего состоит', self: 'claude — сама сессия', procShort: 'проц.',
+  kinds: { mcp: 'MCP-сервер', dev: 'dev-сервер или база', shell: 'оболочка', system: 'служебное' },
+  launcherHint: m => `${m} в этой сессии держат запускалки npx/uvx: они остаются в памяти рядом с MCP-серверами. Если установить серверы глобально и запускать напрямую, эта память освободится.`,
   idleTitle: 'Когда сессия считается ждущей', min_: 'мин',
   levelsTitle: 'Цвет значка', green: 'зелёный', amberFrom: 'Жёлтый с', redFrom: 'Красный с',
   levelsHint: total => `Цвет показывает, какую долю всей памяти компьютера (${total}) занимают сессии Claude Code вместе.`,
@@ -207,6 +222,9 @@ Object.assign(T, RU ? {
   trayOff: 'Not running. Clicking the icon opens the session list with Unload buttons.', trayStart: 'Start',
   autoTitle: 'Start at Windows sign-in', autoOn: 'On: the icon comes back by itself after a restart.', autoOff: 'Off.',
   autoEnable: 'Turn on', autoDisable: 'Turn off',
+  inside: 'Show what it is made of', self: 'claude, the session itself', procShort: 'proc.',
+  kinds: { mcp: 'MCP server', dev: 'dev server or database', shell: 'shell', system: 'system' },
+  launcherHint: m => `${m} in this session is held by npx/uvx launchers, which stay in memory next to the MCP servers they started. Installing those servers globally and running them directly frees it.`,
   idleTitle: 'When a session counts as idle', min_: 'min',
   levelsTitle: 'Icon color', green: 'green', amberFrom: 'Amber from', redFrom: 'Red from',
   levelsHint: total => `The color shows how much of this computer's total memory (${total}) all Claude Code sessions hold together.`,
@@ -255,6 +273,13 @@ async function refresh() {
     data = await api('/api/sessions');
     lastOk = Date.now();
     render();
+    // A link ending in #open-<pid> shows that session's breakdown.
+    const opened = location.hash.match(/^#open-(\d+)$/);
+    if (opened) {
+      history.replaceState(null, '', location.pathname + location.search);
+      openRows.add(Number(opened[1]));
+      render();
+    }
     // A link ending in #unload-<pid> opens that session's confirmation once.
     const deep = location.hash.match(/^#unload-(\d+)$/);
     if (deep && !$('confirm').open) {
@@ -283,21 +308,44 @@ function render() {
     <thead><tr><th>${T.session}</th><th>${T.ram}</th><th class="hide-sm">${T.procs}</th><th>${T.status}</th><th class="hide-sm">${T.last}</th><th></th></tr></thead>
     <tbody>${sessions.map(s => {
       const why = s.current ? T.whyCurrent : '';
+      const isOpen = openRows.has(s.pid);
       return `<tr>
-        <td><div class="title">${esc(s.title)}${s.current ? `<span class="you">${T.you}</span>` : ''}</div><div class="cwd">${esc(s.cwd)}</div></td>
+        <td><button class="more" data-more="${s.pid}" aria-expanded="${isOpen}" title="${esc(T.inside)}"><span class="chev" aria-hidden="true">${isOpen ? '▾' : '▸'}</span><span class="title">${esc(s.title)}</span>${s.current ? `<span class="you">${T.you}</span>` : ''}</button><div class="cwd">${esc(s.cwd)}</div></td>
         <td class="num ram">${mb(s.memBytes)}<div class="bar"><i style="width:${Math.max(2, s.memBytes / max * 100)}%"></i></div></td>
         <td class="num hide-sm">${s.processCount}</td>
         <td><span class="pill ${s.status === 'busy' ? 'busy' : 'idle'}">${esc(T[s.status] || s.status)}</span></td>
         <td class="num hide-sm">${ago(s.lastActivityAt)}</td>
         <td><button data-pid="${s.pid}" ${why ? `disabled title="${esc(why)}"` : ''}>${s.status === 'busy' ? T.interruptBtn : T.unload}</button></td>
-      </tr>`;
+      </tr>${isOpen ? detailRow(s) : ''}`;
     }).join('')}</tbody></table>`;
   tick();
+}
+
+// What a session's memory is made of: the session process itself, then each
+// thing it started (an MCP server with its launcher and shells counts as one).
+const openRows = new Set();
+function detailRow(s) {
+  const parts = [{ label: T.self, memBytes: s.ownMemBytes, processCount: 1, kind: 'self', launcherBytes: 0 }, ...(s.groups || [])];
+  const top = Math.max(...parts.map(p => p.memBytes), 1);
+  const rows = parts.map(p => `<div class="part">
+      <span class="plabel">${esc(p.label)}${T.kinds[p.kind] ? `<span class="kind">${T.kinds[p.kind]}</span>` : ''}</span>
+      <span class="pbar"><i style="width:${Math.max(1, p.memBytes / top * 100)}%"></i></span>
+      <span class="pnum">${mb(p.memBytes)} · ${p.processCount} ${T.procShort}</span>
+    </div>`).join('');
+  const hint = s.launcherBytes >= 50 * 1048576 ? `<p class="hint">${esc(T.launcherHint(mb(s.launcherBytes)))}</p>` : '';
+  return `<tr class="detail"><td colspan="6">${rows}${hint}</td></tr>`;
 }
 
 function tick() { if (lastOk) $('updated').textContent = T.updated(ago(lastOk)); }
 
 $('list').addEventListener('click', e => {
+  const more = e.target.closest('button[data-more]');
+  if (more) {
+    const pid = Number(more.dataset.more);
+    if (openRows.has(pid)) openRows.delete(pid); else openRows.add(pid);
+    render();
+    return;
+  }
   const b = e.target.closest('button[data-pid]');
   if (!b) return;
   const s = data.sessions.find(x => x.pid === Number(b.dataset.pid));

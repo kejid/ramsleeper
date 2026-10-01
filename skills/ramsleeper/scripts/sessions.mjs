@@ -261,6 +261,18 @@ function demoData() {
     };
     s.memBytes = s.ownMemBytes + children.reduce((t, c) => t + c.memBytes, 0);
     s.processCount = 1 + children.length;
+    const groups = new Map();
+    for (const c of children) {
+      const label = c.cmd === 'chrome' ? '@playwright/mcp' : c.name === 'conhost.exe' ? 'conhost' : c.cmd;
+      const g = groups.get(label) || { label, kind: c.notable ? 'dev' : label === 'conhost' ? 'system' : 'mcp', memBytes: 0, processCount: 0, launcherBytes: 0 };
+      g.memBytes += c.memBytes;
+      g.processCount += 1;
+      // Pretend the larger MCP servers were started through npx, as they usually are.
+      if (g.kind === 'mcp' && c.name === 'node.exe') g.launcherBytes = Math.min(60 * MB, Math.round(c.memBytes * 0.5));
+      groups.set(label, g);
+    }
+    s.groups = [...groups.values()].sort((a, b) => b.memBytes - a.memBytes);
+    s.launcherBytes = s.groups.reduce((t, g) => t + g.launcherBytes, 0);
     return s;
   };
   const sessions = [
@@ -318,9 +330,11 @@ function collect() {
       startKey: proc.start ?? proc.startMs ?? null,
       children: kids.map(k => ({ pid: k.pid, name: k.name, memBytes: k.mem, cmd: shortCmd(k.cmd), notable: isNotable(k, proc, procs),
         startKey: k.start ?? k.startMs ?? null })),
+      groups: groupChildren(proc, kids),
       current: myChain.has(info.pid),
     });
   }
+  for (const s of sessions) s.launcherBytes = s.groups.reduce((t, g) => t + g.launcherBytes, 0);
   sessions.sort((a, b) => b.memBytes - a.memBytes);
   sessions.forEach((s, i) => { s.n = i + 1; });
 
@@ -354,13 +368,64 @@ function isNotable(p, root, procs) {
   return true;
 }
 
+// The npm package a command line runs, such as "@playwright/mcp". Windows
+// paths use backslashes (node_modules\@scope\name), so both separators count.
+function packageName(cmd) {
+  const m = cmd && cmd.match(/@[\w.-]+[\\/][\w.-]+/);
+  return m ? m[0].replace('\\', '/') : null;
+}
+
 function shortCmd(cmd) {
   if (!cmd) return '';
   // Prefer a recognisable package or tool name (MCP servers, dev servers).
-  const m = cmd.match(/(@[\w.-]+\/[\w.-]+|[\w.-]*mcp[\w.-]*|\b(?:vite|next|webpack|nodemon|tsx|playwright|chrome|msedge)\b)/i);
+  const pkg = packageName(cmd);
+  if (pkg) return pkg;
+  const m = cmd.match(/([\w.-]*mcp[\w.-]*|\b(?:vite|next|webpack|nodemon|tsx|playwright|chrome|msedge)\b)/i);
   if (m) return m[1].replace(/\.(exe|js|cjs|mjs)$/i, '');
   const args = cmd.replace(/^"[^"]+"|^\S+/, '').trim();
   return args.slice(0, 60);
+}
+
+// What a session's processes are for. Children are grouped by the direct child
+// of the session that started them, so an MCP server and the launcher, shell
+// and console around it count as one thing. Each group reports how much of it
+// is launcher overhead: `npx` and `uvx` stay in memory next to the server they
+// started, typically 60 MB each for npx.
+const LAUNCHER_RE = /npx-cli\.js|[\\/]npx(\.cmd|\.exe)?["\s]|\buvx(\.exe)?\b/i;
+function groupChildren(root, kids) {
+  const byPid = new Map(kids.map(k => [k.pid, k]));
+  const topOf = k => {
+    let c = k;
+    for (let hops = 0; c.ppid !== root.pid && byPid.has(c.ppid) && hops < 30; hops++) c = byPid.get(c.ppid);
+    return c;
+  };
+  const raw = new Map();
+  for (const k of kids) {
+    const top = topOf(k);
+    if (!raw.has(top.pid)) raw.set(top.pid, { top, members: [] });
+    raw.get(top.pid).members.push(k);
+  }
+  const groups = new Map();
+  for (const { top, members } of raw.values()) {
+    const pkg = members.map(m => packageName(m.cmd)).find(Boolean);
+    const mcp = members.map(m => m.cmd.match(/[\w.-]*mcp[\w.-]*/i)?.[0]).find(Boolean);
+    const dev = members.map(m => m.cmd.match(DEV_RE)?.[0]).find(Boolean);
+    const topName = top.name.replace(/\.exe$/i, '');
+    const label = pkg || (mcp && mcp.replace(/\.(exe|js|cjs|mjs)$/i, '')) || dev || topName;
+    const kind = pkg || mcp ? (MCP_RE.test(label) || MCP_RE.test(members.map(m => m.cmd).join(' ')) ? 'mcp' : 'other')
+      : dev ? 'dev'
+      : /^conhost$/i.test(topName) ? 'system'
+      : /^(cmd|powershell|pwsh|bash|sh|zsh|fish)$/i.test(topName) ? 'shell' : 'other';
+    // A launcher counts as overhead only when it started something else.
+    const launcherBytes = members.length > 1
+      ? members.filter(m => LAUNCHER_RE.test(m.cmd) || /^uvx?(\.exe)?$/i.test(m.name)).reduce((t, m) => t + m.mem, 0) : 0;
+    const g = groups.get(label) || { label, kind, memBytes: 0, processCount: 0, launcherBytes: 0 };
+    g.memBytes += members.reduce((t, m) => t + m.mem, 0);
+    g.processCount += members.length;
+    g.launcherBytes += launcherBytes;
+    groups.set(label, g);
+  }
+  return [...groups.values()].sort((a, b) => b.memBytes - a.memBytes);
 }
 
 // ---------------------------------------------------------------- output

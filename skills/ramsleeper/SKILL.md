@@ -27,6 +27,12 @@ and show the result to the user as a table in their language: number, title, RAM
 
 If `node` is not found, tell the user the plugin needs Node.js 18 or newer on PATH and stop.
 
+## What a session's memory is made of
+
+When the user asks what is inside a session, what its processes are, or why one session is so large, run `list --json` and read that session's `ownMemBytes` (the `claude` process itself) and `groups`. Each group is one thing the session started, with its launcher, shells and console counted together: `label` (usually the MCP server's package name), `kind` (`mcp`, `dev`, `shell`, `system` or `other`), `memBytes`, `processCount`, and `launcherBytes`. Show them as a short table, largest first.
+
+`launcherBytes` is memory held by `npx` or `uvx` launchers that stay running next to the MCP server they started, about 60 MB each for npx. If a session's total `launcherBytes` is 50 MB or more, say so and explain the fix: install those MCP servers globally (`npm i -g <package>`) and point the MCP config at the installed command instead of `npx -y <package>`. That is a change to the user's MCP configuration; describe it, and make it only if they ask.
+
 ## Dashboard
 
 If the user wants something that stays open and refreshes by itself, rather than a snapshot in chat, start the local dashboard in the background:

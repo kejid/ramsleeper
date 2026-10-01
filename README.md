@@ -25,6 +25,7 @@ To try RAM Sleeper without installing it, start Claude Code with `claude --plugi
 ## What it does
 
 - **Shows memory per session.** Each session's figure covers every process it started, and each session also shows its status (busy or idle) and last activity. The desktop app's own share is listed separately.
+- **Shows what each session is made of.** Click a session to see the `claude` process itself and every MCP server it started, each with its memory. It also points out memory held by `npx` or `uvx` launchers, which stay running next to the server they started, about 60 MB each for npx.
 - **Unloads without losing anything.** The session is asked to exit on its own, as if you pressed Ctrl+C, so the desktop app does not report a crash. The transcript stays on disk. Open the session, send a message, and it loads back into memory with the same conversation.
 - **Handles stuck sessions.** A busy session can be interrupted and unloaded after a separate warning.
 - **Always confirms first.** Nothing is stopped until you have seen exactly which processes will stop.
@@ -32,6 +33,12 @@ To try RAM Sleeper without installing it, start Claude Code with `claude --plugi
 ## Screenshots
 
 All screenshots use demo data (`RAMSLEEPER_DEMO=1`), not real sessions.
+
+### What a session is made of
+
+Click a session in the dashboard or the tray to see where its memory goes: the `claude` process and each MCP server or dev server it started. If `npx` or `uvx` launchers are holding memory, it says how much.
+
+![Dashboard with one session expanded into the claude process, two MCP servers, and a Vite dev server, with a note about npx launchers](docs/images/breakdown-dark.png)
 
 ### The confirmation
 

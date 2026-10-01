@@ -85,6 +85,8 @@ $T = if ($RU) { @{
     title = 'Сессии Claude Code'; unload = 'Выгрузить'; interrupt = 'Прервать'
     busyWarn = 'Сессия сейчас работает: текущий ход оборвётся. Переписка до него сохранится.'
     busy = 'работает'; idle = 'ждёт'; mb = 'МБ'; gb = 'ГБ'
+    self = 'claude — сама сессия'
+    launcherHint = '{0} здесь держат запускалки npx/uvx рядом с MCP-серверами. Если установить серверы глобально, эта память освободится.'
     refresh = 'Обновить'; dashboard = 'Открыть панель'; autostart = 'Запускать при входе в Windows'; exit = 'Выход'
     tip = 'Ждут {0} из {1} сессий · {2} ({3:0}% памяти)'
     legend = 'Цифра на значке — сколько сессий ждут {0}+ мин: их можно выгрузить. Цвет — какую долю всей памяти компьютера занимают сессии: зелёный до {1}%, жёлтый до {2}%, красный больше.'
@@ -97,6 +99,8 @@ $T = if ($RU) { @{
     title = 'Claude Code sessions'; unload = 'Unload'; interrupt = 'Interrupt'
     busyWarn = 'This session is working: the running turn will be cut off. The conversation up to it is kept.'
     busy = 'busy'; idle = 'idle'; mb = 'MB'; gb = 'GB'
+    self = 'claude, the session itself'
+    launcherHint = '{0} here is held by npx/uvx launchers next to the MCP servers. Installing the servers globally frees it.'
     refresh = 'Refresh'; dashboard = 'Open dashboard'; autostart = 'Start at Windows sign-in'; exit = 'Exit'
     tip = '{0} of {1} sessions idle · {2} ({3:0}% of memory)'
     legend = 'The number on the icon is how many sessions have been idle {0}+ minutes, ready to unload. The color is the share of the computer''s total memory all sessions hold: green under {1}%, amber under {2}%, red above.'
@@ -225,6 +229,7 @@ $popup.Add_Paint({ param($s, $e) $e.Graphics.DrawRectangle((New-Object Drawing.P
 
 $script:data = $null
 $script:updatedAt = $null
+$script:openRows = @{}
 
 function Add-Label($parent, [string]$text, $font, $color, [int]$x, [int]$y, [int]$w, [string]$align = 'MiddleLeft') {
     $l = New-Object System.Windows.Forms.Label
@@ -273,7 +278,17 @@ function Build-Popup {
             $sep = New-Object System.Windows.Forms.Panel
             $sep.BackColor = $C.line; $sep.SetBounds($pad, $y, $w - 2 * $pad, 1); $popup.Controls.Add($sep)
             $y += 8
-            Add-Label $popup $s.title $FontBold $C.fg $pad $y ($w - 2 * $pad - 100) | Out-Null
+            # Clicking the title shows what the session's memory is made of.
+            $isOpen = $script:openRows.ContainsKey([int]$s.pid)
+            $mark = if ($isOpen) { [char]0x25BE } else { [char]0x25B8 }
+            $tl = Add-Label $popup ("$mark " + $s.title) $FontBold $C.fg $pad $y ($w - 2 * $pad - 100)
+            $tl.Cursor = [System.Windows.Forms.Cursors]::Hand
+            $tl.Tag = [int]$s.pid
+            $tl.Add_Click({
+                $id = [int]$this.Tag
+                if ($script:openRows.ContainsKey($id)) { $script:openRows.Remove($id) } else { $script:openRows[$id] = $true }
+                Build-Popup
+            })
             $status = if ($s.status -eq 'busy') { $T.busy } else { $T.idle }
             if ($s.status -ne 'busy' -and $s.lastActivityAt) {
                 $mins = ([DateTimeOffset]::Now.ToUnixTimeMilliseconds() - $s.lastActivityAt) / 60000
@@ -292,6 +307,21 @@ function Build-Popup {
                 $b.Tag = [int]$s.pid
             }
             $y += 56
+            if ($isOpen) {
+                $parts = @(@{ label = $T.self; memBytes = $s.ownMemBytes; processCount = 1 }) + @($s.groups)
+                foreach ($g in $parts) {
+                    Add-Label $popup ([string]$g.label) $FontUi $C.fg ($pad + 14) $y ($w - 2 * $pad - 150) | Out-Null
+                    Add-Label $popup ('{0} · {1} {2}' -f (Format-Size $g.memBytes), $g.processCount, $T.procs) $FontUi $C.muted ($w - $pad - 136) $y 136 'MiddleRight' | Out-Null
+                    $y += 20
+                }
+                if ($s.launcherBytes -ge 50MB) {
+                    $hint = $T.launcherHint -f (Format-Size $s.launcherBytes)
+                    $hl = Add-Label $popup $hint $FontUi $C.busy ($pad + 14) ($y + 2) ($w - 2 * $pad - 14)
+                    $hl.Height = [System.Windows.Forms.TextRenderer]::MeasureText($hint, $FontUi, (New-Object Drawing.Size(($w - 2 * $pad - 14), 0)), [System.Windows.Forms.TextFormatFlags]::WordBreak).Height + 4
+                    $y += $hl.Height + 4
+                }
+                $y += 8
+            }
         }
     }
 
@@ -429,6 +459,8 @@ $tray.Add_MouseClick({
 if ($Snapshot) {
     $script:data = Invoke-Sessions @('list', '--json') | ConvertFrom-Json
     $script:updatedAt = Get-Date
+    # The first session is shown expanded, so the screenshot includes the breakdown.
+    if (@($script:data.sessions).Count) { $script:openRows[[int]@($script:data.sessions)[0].pid] = $true }
     Build-Popup
     $popup.Location = New-Object Drawing.Point(-4000, -4000)
     $popup.Show()
