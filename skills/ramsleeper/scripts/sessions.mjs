@@ -624,7 +624,7 @@ function widgetHtml(data, lang) {
   const rows = sessions.map(s => {
     const action = s.current
       ? `<span class="m">${L.current}</span>`
-      : `<button data-pid="${s.pid}">${s.status === 'busy' ? L.interrupt : L.unload} ↗</button>`;
+      : `<button data-pid="${s.pid}"><i class="ti ${s.status === 'busy' ? 'ti-player-stop' : 'ti-moon'}" aria-hidden="true"></i>${s.status === 'busy' ? L.interrupt : L.unload}</button>`;
     return `<div class="row">
   <div style="min-width:0"><div class="t" title="${esc(s.title)}">${esc(s.title)}</div><div class="m">${esc(s.cwd)}</div></div>
   <div><div style="font-size:13px">${size(s.memBytes)} · ${s.processCount} ${L.proc}</div><div class="bar"><i style="width:${Math.max(2, Math.round(s.memBytes / max * 100))}%"></i></div></div>
@@ -635,7 +635,10 @@ function widgetHtml(data, lang) {
 
   return `<h2 class="sr-only">${esc(L.inSessions)}: ${size(total)}, ${sessions.length} Claude Code sessions.</h2>
 <style>
-.row{display:grid;grid-template-columns:minmax(0,1fr) 150px 72px 104px;gap:12px;align-items:center;padding:10px 0;border-bottom:0.5px solid var(--border)}
+.row{display:grid;grid-template-columns:minmax(0,1fr) 150px 84px 132px;gap:12px;align-items:center;padding:10px 0;border-bottom:0.5px solid var(--border)}
+.row button,#sr-refresh{white-space:nowrap}
+.row button i,#sr-refresh i{font-size:16px;vertical-align:-2px;margin-right:6px}
+.row>:last-child{justify-self:end;white-space:nowrap}
 .row:last-child{border-bottom:0}
 .t{font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .m{font-size:12px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -644,7 +647,7 @@ function widgetHtml(data, lang) {
 .pill{font-size:12px;padding:2px 8px;border-radius:var(--radius);justify-self:start}
 .idle{background:var(--bg-success);color:var(--text-success)}
 .busy{background:var(--bg-warning);color:var(--text-warning)}
-@media (max-width:520px){.row{grid-template-columns:minmax(0,1fr) 96px}.row .pill{display:none}}
+@media (max-width:520px){.row{grid-template-columns:minmax(0,1fr) max-content}.row .pill{display:none}}
 </style>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:0.5rem 0 1rem">
 ${stat(L.inSessions, size(total))}
@@ -654,7 +657,7 @@ ${app ? stat(L.app, size(app.memBytes)) : ''}
 <div id="sr-rows">${rows || `<p class="m">${L.none}</p>`}</div>
 <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px">
   <span class="m">${L.asOf} ${time}</span>
-  <button id="sr-refresh">${L.refresh} ↗</button>
+  <button id="sr-refresh"><i class="ti ti-refresh" aria-hidden="true"></i>${L.refresh}</button>
 </div>
 <script type="application/json" id="sr-prompts">${JSON.stringify(prompts).replace(/</g, '\\u003c')}</script>
 <script>
