@@ -377,8 +377,13 @@ function buildAdvice(sessions) {
   return out;
 }
 
-function adviceText(a) {
-  const size = `${Math.round(a.memBytes / 1048576)} MB`;
+function adviceText(a, ru = false) {
+  const size = `${Math.round(a.memBytes / 1048576)} ${ru ? 'МБ' : 'MB'}`;
+  if (ru) {
+    return a.type === 'launchers'
+      ? `Запускалки npx/uvx держат ${size} в ${a.sessions} сессиях. Установите MCP-серверы глобально, и эта память освободится.`
+      : `${a.label} запущен в ${a.sessions} сессиях и занимает ${size}. Если он нужен не везде, подключите его только в нужных проектах.`;
+  }
   return a.type === 'launchers'
     ? `npx/uvx launchers hold ${size} across ${a.sessions} sessions. Install the MCP servers globally and run them directly to free it.`
     : `${a.label} runs in ${a.sessions} sessions and holds ${size}. If you don't need it everywhere, enable it only in the projects that use it.`;
@@ -417,9 +422,23 @@ function nameCandidates(cmd) {
   for (const m of cmd.matchAll(/node_modules[\\/]([a-z][\w.-]*)/gi)) {
     if (!NOT_A_PACKAGE.test(m[1])) out.push(m[1]);
   }
-  for (const token of cmd.split(/[\s"']+/)) {
-    const base = token.split(/[\\/]/).pop().replace(/\.(exe|js|cjs|mjs|cmd|py)$/i, '');
+  for (const base of commandWords(cmd)) {
     if (/mcp/i.test(base) && /^[\w.-]+$/.test(base)) out.push(base);
+  }
+  return out;
+}
+
+// Words of a command line that name a program or script: the executable, bare
+// words ("uvx mcp-server-git"), and paths ending in a script or program file.
+// Flags ("--mcp-config") and paths without such an ending, which are usually
+// folders, are left out.
+const SCRIPT_EXT = /\.(exe|js|cjs|mjs|cmd|py)$/i;
+function commandWords(cmd) {
+  const out = [];
+  for (const [i, token] of cmd.split(/[\s"']+/).filter(Boolean).entries()) {
+    if (token.startsWith('-')) continue;
+    if (i > 0 && /[\\/]/.test(token) && !SCRIPT_EXT.test(token)) continue;
+    out.push(token.split(/[\\/]/).pop().replace(SCRIPT_EXT, ''));
   }
   return out;
 }
@@ -466,7 +485,7 @@ function groupChildren(root, kids) {
     // folder it happens to run in; a dev tool comes next, then any package.
     const names = members.flatMap(m => nameCandidates(m.cmd));
     const mcp = names.find(n => n.startsWith('@') && MCP_RE.test(n)) || names.find(n => MCP_RE.test(n));
-    const dev = members.map(m => m.cmd.match(DEV_RE)?.[0]).find(Boolean);
+    const dev = [...names, ...members.flatMap(m => commandWords(m.cmd))].map(n => n.match(DEV_RE)?.[0]).find(Boolean);
     const topName = top.name.replace(/\.exe$/i, '');
     const label = mcp || dev || names.find(n => n.startsWith('@')) || topName;
     const kind = mcp ? 'mcp'
@@ -837,7 +856,7 @@ function xbarOutput(data) {
       ? `--${L.interrupt} | ${run('confirm-unload', String(s.pid), '--force')}`
       : `--${L.unload} | ${run('confirm-unload', String(s.pid))}`);
   }
-  for (const a of data.advice || []) lines.push('---', `${clean(adviceText(a))} | disabled=true`);
+  for (const a of data.advice || []) lines.push('---', `${clean(adviceText(a, ru))} | disabled=true`);
   lines.push('---');
   if (app) lines.push(`${L.app}: ${size(app.memBytes)} | disabled=true`);
   lines.push(`${L.dashboard} | ${run('serve').replace(' refresh=true', '')}`);

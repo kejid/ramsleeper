@@ -336,7 +336,7 @@ function Build-Popup {
 
     # Ways to save memory without unloading anything, worked out by sessions.mjs.
     if ($script:data) {
-        foreach ($a in @($script:data.advice) | Select-Object -First 2) {
+        foreach ($a in @($script:data.advice)) {
             if (-not $a) { continue }
             $text = if ($a.type -eq 'launchers') { $T.adviceLaunchers -f (Format-Size $a.memBytes), $a.sessions }
                     else { $T.adviceMcp -f $a.label, $a.sessions, (Format-Size $a.memBytes) }
