@@ -22,6 +22,10 @@ $StartupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'RAM Sleeper.l
 
 # Start at sign-in goes through a small launcher that picks the newest
 # installed plugin version, so a plugin update does not break the shortcut.
+# The plugin can live in two places: Claude Code's own cache (installed with
+# `claude plugin install`) and the desktop app's folder for plugins added from
+# the directory on claude.ai. The launcher reads plugin.json in each and runs
+# the highest version.
 function Set-Autostart([bool]$on) {
     if (-not $on) {
         Remove-Item $StartupLnk, $Launcher -ErrorAction SilentlyContinue
@@ -29,13 +33,20 @@ function Set-Autostart([bool]$on) {
     }
     New-Item -ItemType Directory -Force $StateDir | Out-Null
     $fallback = $PSCommandPath -replace "'", "''"
-    $cache = (Join-Path $env:USERPROFILE '.claude\plugins\cache\ramsleeper\ramsleeper') -replace "'", "''"
+    $cliCache = (Join-Path $env:USERPROFILE '.claude\plugins\cache\ramsleeper\ramsleeper\*') -replace "'", "''"
+    $appDir = (Join-Path $env:APPDATA 'Claude\local-agent-mode-sessions\*\*\rpm\plugin_*') -replace "'", "''"
     @"
 # Written by RAM Sleeper. Starts the newest installed tray script.
-`$tray = Get-ChildItem '$cache' -Directory -ErrorAction SilentlyContinue |
-    Sort-Object { try { [version]`$_.Name } catch { [version]'0.0' } } -Descending |
-    ForEach-Object { Join-Path `$_.FullName 'companion\windows-tray\ramsleeper-tray.ps1' } |
-    Where-Object { Test-Path `$_ } | Select-Object -First 1
+`$tray = Get-Item '$cliCache', '$appDir' -ErrorAction SilentlyContinue | ForEach-Object {
+    `$script = Join-Path `$_.FullName 'companion\windows-tray\ramsleeper-tray.ps1'
+    `$manifest = Join-Path `$_.FullName '.claude-plugin\plugin.json'
+    if ((Test-Path `$script) -and (Test-Path `$manifest)) {
+        try {
+            `$m = Get-Content `$manifest -Raw | ConvertFrom-Json
+            if (`$m.name -eq 'ramsleeper') { [pscustomobject]@{ Script = `$script; Version = [version]`$m.version } }
+        } catch { }
+    }
+} | Sort-Object Version -Descending | Select-Object -First 1 -ExpandProperty Script
 if (-not `$tray) { `$tray = '$fallback' }
 & `$tray
 "@ | Set-Content -Path $Launcher -Encoding UTF8
