@@ -15,7 +15,7 @@
 <meta property="og:url" content="https://kejid.github.io/ramsleeper/">
 <meta property="og:image" content="https://kejid.github.io/ramsleeper/img/dashboard-dark.png">
 <meta property="og:image:width" content="1100">
-<meta property="og:image:height" content="700">
+<meta property="og:image:height" content="860">
 <meta property="og:image:alt" content="RAM Sleeper dashboard listing Claude Code sessions with their memory use">
 <meta name="twitter:card" content="summary_large_image">
 <script type="application/ld+json">
@@ -45,6 +45,8 @@
       "acceptedAnswer": { "@type": "Answer", "text": "Every Claude Code session is its own tree of processes: the claude process plus the MCP servers, shells, browsers and dev servers it started. One session often holds 0.3 to 1.3 GB across a dozen or more processes, and idle sessions keep that memory. With several sessions open, for example in the Claude desktop app, it adds up to many gigabytes." } },
     { "@type": "Question", "name": "How do I see how much RAM each Claude Code session uses?",
       "acceptedAnswer": { "@type": "Answer", "text": "Install RAM Sleeper and run /ramsleeper:sessions. It lists every running session with the memory of its whole process tree, its process count, whether it is busy or idle, and when it was last active." } },
+    { "@type": "Question", "name": "Does every Claude Code session start its own MCP servers?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes, for local (stdio) MCP servers. Each session starts its own copy of every server enabled for it, so five sessions with a Playwright MCP server run five of them. If a server is needed in only some projects, enabling it in those projects' settings instead of for all projects saves that memory in every other session." } },
     { "@type": "Question", "name": "Do I lose the conversation when a session is unloaded?",
       "acceptedAnswer": { "@type": "Answer", "text": "No. Unloading stops the session's processes only. The transcript stays on disk, and when you open the session and send a message it loads back into memory with the same conversation." } },
     { "@type": "Question", "name": "Does RAM Sleeper fix the Claude Code memory leak?",
@@ -142,7 +144,7 @@
         <span class="note">Free, open source (MIT). Sends nothing over the network.</span>
       </div>
       <div class="shot">
-        <img src="img/dashboard-dark.png" width="1100" height="700" alt="RAM Sleeper dashboard listing six Claude Code sessions with memory bars, process counts, busy or idle status, and Unload buttons">
+        <img src="img/dashboard-dark.png" width="1100" height="860" alt="RAM Sleeper dashboard listing six Claude Code sessions with memory bars, process counts, busy or idle status, Unload buttons, and tips for saving memory">
       </div>
     </section>
 
@@ -161,9 +163,19 @@
       <h2>What RAM Sleeper does</h2>
       <div class="grid">
         <div class="card"><h3>Memory per session</h3><p>Each session's figure covers its whole process tree, with its title, status, and last activity. The desktop app's own share is listed separately.</p></div>
+        <div class="card"><h3>What each session is made of</h3><p>Expand a session to see the <code>claude</code> process and every MCP server or dev server it started, each with its memory.</p></div>
+        <div class="card"><h3>Tips that need no unloading</h3><p>It points out an MCP server that runs in many sessions and the memory held by <code>npx</code> and <code>uvx</code> launchers.</p></div>
         <div class="card"><h3>Unload without losing anything</h3><p>The session is asked to exit on its own, so the desktop app does not report a crash. The transcript stays on disk and the session resumes on your next message.</p></div>
         <div class="card"><h3>Always confirms first</h3><p>You see every process that will stop before anything stops. A dev server or database started from the session is called out separately.</p></div>
         <div class="card"><h3>Stuck sessions too</h3><p>A busy session can be interrupted and unloaded after a separate warning. Everything before the running turn is kept.</p></div>
+      </div>
+    </section>
+
+    <section id="inside">
+      <h2>See what is inside a session</h2>
+      <p class="sub">A local MCP server starts separately in every session, so a server you enabled for all projects costs its memory once per open session. And when a server is started with <code>npx -y package</code>, the launcher stays in memory next to it, about 60 MB each time. RAM Sleeper shows both, per session and in total.</p>
+      <div class="shot" style="margin-top:22px">
+        <img src="img/breakdown-dark.png" width="1100" height="1060" loading="lazy" alt="Dashboard with one session expanded into the claude process, a Playwright MCP server, a Vite dev server and other MCP servers, with a note about memory held by npx launchers and tips below the list">
       </div>
     </section>
 
@@ -175,11 +187,11 @@
           <figcaption><strong>In the chat.</strong> Run <code>/ramsleeper:sessions</code>, or ask "which session uses the most memory?"</figcaption>
         </figure>
         <figure>
-          <img src="img/tray-popup.png" width="640" height="551" loading="lazy" alt="Windows tray popup with the session list, and the tray icon in green, amber, and red">
+          <img src="img/tray-popup.png" width="640" height="812" loading="lazy" alt="Windows tray popup with the session list, one session expanded into its MCP servers, and the tray icon in green, amber, and red">
           <figcaption><strong>Windows tray.</strong> The number is how many sessions are idle. The color is how much of your RAM all sessions hold.</figcaption>
         </figure>
         <figure>
-          <img src="img/unload-confirm-dark.png" width="1100" height="760" loading="lazy" alt="Unload confirmation listing the processes that will stop, with a Vite dev server highlighted">
+          <img src="img/unload-confirm-dark.png" width="1100" height="860" loading="lazy" alt="Unload confirmation listing the processes that will stop, with a Vite dev server highlighted">
           <figcaption><strong>Local dashboard.</strong> <code>/ramsleeper:dashboard</code> opens a live view with a confirmation before each unload.</figcaption>
         </figure>
         <figure>
@@ -224,6 +236,7 @@ claude plugin install ramsleeper@ramsleeper</code></pre>
       <h2>Questions</h2>
       <details><summary>Why does Claude Code use so much memory?</summary><p>Every session is its own tree of processes: the <code>claude</code> process plus the MCP servers, shells, browsers, and dev servers it started. One session often holds 0.3 to 1.3 GB across a dozen or more processes, and idle sessions keep that memory. With several sessions open, for example in the Claude desktop app, it adds up to many gigabytes.</p></details>
       <details><summary>How do I see how much RAM each Claude Code session uses?</summary><p>Install RAM Sleeper and run <code>/ramsleeper:sessions</code>. It lists every running session with the memory of its whole process tree, its process count, whether it is busy or idle, and when it was last active.</p></details>
+      <details><summary>Does every Claude Code session start its own MCP servers?</summary><p>Yes, for local (stdio) MCP servers. Each session starts its own copy of every server enabled for it, so five sessions with a Playwright MCP server run five of them. If a server is needed in only some projects, enabling it in those projects' settings instead of for all projects saves that memory in every other session.</p></details>
       <details><summary>Do I lose the conversation when a session is unloaded?</summary><p>No. Unloading stops the session's processes only. The transcript stays on disk, and when you open the session and send a message it loads back into memory with the same conversation.</p></details>
       <details><summary>Does RAM Sleeper fix the Claude Code memory leak?</summary><p>No. It does not change Claude Code. It shows which sessions hold the memory and frees it by unloading the ones you are not using, which you can resume later.</p></details>
       <details><summary>What happens to a dev server I started from a session?</summary><p>It stops with the session, because it is one of its child processes. The confirmation lists such processes separately, so it is not a surprise.</p></details>
