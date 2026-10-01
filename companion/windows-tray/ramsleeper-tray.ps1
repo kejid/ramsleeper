@@ -86,6 +86,8 @@ $T = if ($RU) { @{
     busyWarn = 'Сессия сейчас работает: текущий ход оборвётся. Переписка до него сохранится.'
     busy = 'работает'; idle = 'ждёт'; mb = 'МБ'; gb = 'ГБ'
     self = 'claude — сама сессия'
+    adviceMcp = '{0} запущен в {1} сессиях и занимает {2}. Если он нужен не везде, подключите его только в нужных проектах.'
+    adviceLaunchers = 'Запускалки npx/uvx держат {0} в {1} сессиях. Установите MCP-серверы глобально, и эта память освободится.'
     launcherHint = '{0} здесь держат запускалки npx/uvx рядом с MCP-серверами. Если установить серверы глобально, эта память освободится.'
     refresh = 'Обновить'; dashboard = 'Открыть панель'; autostart = 'Запускать при входе в Windows'; exit = 'Выход'
     tip = 'Ждут {0} из {1} сессий · {2} ({3:0}% памяти)'
@@ -100,6 +102,8 @@ $T = if ($RU) { @{
     busyWarn = 'This session is working: the running turn will be cut off. The conversation up to it is kept.'
     busy = 'busy'; idle = 'idle'; mb = 'MB'; gb = 'GB'
     self = 'claude, the session itself'
+    adviceMcp = '{0} runs in {1} sessions and holds {2}. If you don''t need it everywhere, enable it only in the projects that use it.'
+    adviceLaunchers = 'npx/uvx launchers hold {0} across {1} sessions. Install the MCP servers globally to free it.'
     launcherHint = '{0} here is held by npx/uvx launchers next to the MCP servers. Installing the servers globally frees it.'
     refresh = 'Refresh'; dashboard = 'Open dashboard'; autostart = 'Start at Windows sign-in'; exit = 'Exit'
     tip = '{0} of {1} sessions idle · {2} ({3:0}% of memory)'
@@ -230,6 +234,7 @@ $popup.Add_Paint({ param($s, $e) $e.Graphics.DrawRectangle((New-Object Drawing.P
 $script:data = $null
 $script:updatedAt = $null
 $script:openRows = @{}
+$script:trash = New-Object System.Collections.ArrayList
 
 function Add-Label($parent, [string]$text, $font, $color, [int]$x, [int]$y, [int]$w, [string]$align = 'MiddleLeft') {
     $l = New-Object System.Windows.Forms.Label
@@ -252,6 +257,10 @@ function Add-Button($parent, [string]$text, [int]$x, [int]$y, [int]$w, [scriptbl
 
 function Build-Popup {
     $popup.SuspendLayout()
+    # Clear() only detaches controls; undisposed ones would leak window handles
+    # in a process that runs for days. They are disposed a moment later from the
+    # timer, because a rebuild can start inside a click on one of them.
+    foreach ($old in @($popup.Controls)) { [void]$script:trash.Add($old) }
     $popup.Controls.Clear()
     $popup.Width = 440
     $pad = 14; $y = 12; $w = $popup.Width
@@ -325,6 +334,18 @@ function Build-Popup {
         }
     }
 
+    # Ways to save memory without unloading anything, worked out by sessions.mjs.
+    if ($script:data) {
+        foreach ($a in @($script:data.advice) | Select-Object -First 2) {
+            if (-not $a) { continue }
+            $text = if ($a.type -eq 'launchers') { $T.adviceLaunchers -f (Format-Size $a.memBytes), $a.sessions }
+                    else { $T.adviceMcp -f $a.label, $a.sessions, (Format-Size $a.memBytes) }
+            $al = Add-Label $popup $text $FontUi $C.busy $pad $y ($w - 2 * $pad)
+            $al.Height = [System.Windows.Forms.TextRenderer]::MeasureText($text, $FontUi, (New-Object Drawing.Size(($w - 2 * $pad), 0)), [System.Windows.Forms.TextFormatFlags]::WordBreak).Height + 4
+            $y += $al.Height + 6
+        }
+    }
+
     $sep = New-Object System.Windows.Forms.Panel
     $sep.BackColor = $C.line; $sep.SetBounds(0, $y, $w, 1); $popup.Controls.Add($sep)
     $y += 10
@@ -380,6 +401,7 @@ $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 500
 $script:ticks = 0
 $timer.Add_Tick({
+    if ($script:trash.Count) { foreach ($old in @($script:trash)) { $old.Dispose() }; $script:trash.Clear() }
     $script:ticks++
     if ($script:ticks -ge 60) { $script:ticks = 0; Start-Refresh }   # every 30 s
     if ($script:job -and $script:job.handle.IsCompleted) {

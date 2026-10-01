@@ -285,7 +285,7 @@ function demoData() {
   ];
   sessions.sort((a, b) => b.memBytes - a.memBytes).forEach((s, i) => { s.n = i + 1; });
   return { sessions, app: { pid: 4000, memBytes: 1720 * MB, processCount: 14 }, platform: process.platform,
-    systemMemBytes: 32 * 1024 * MB, memMetric: IS_WIN ? 'private working set' : 'RSS', idleMinutes: idleMinutes(), levels: levels(), demo: true };
+    systemMemBytes: 32 * 1024 * MB, memMetric: IS_WIN ? 'private working set' : 'RSS', idleMinutes: idleMinutes(), levels: levels(), advice: buildAdvice(sessions), demo: true };
 }
 
 function collect() {
@@ -348,7 +348,40 @@ function collect() {
     const helpers = (idx.get(h.pid) || []).filter(c => !sessionPids.has(c.pid) && /claude/i.test(c.name));
     app = { pid: h.pid, memBytes: h.mem + helpers.reduce((s, c) => s + c.mem, 0), processCount: 1 + helpers.length };
   }
-  return { sessions, app, platform: process.platform, systemMemBytes: os.totalmem(), memMetric: IS_WIN ? 'private working set' : 'RSS', idleMinutes: idleMinutes(), levels: levels() };
+  return { sessions, app, platform: process.platform, systemMemBytes: os.totalmem(), memMetric: IS_WIN ? 'private working set' : 'RSS', idleMinutes: idleMinutes(), levels: levels(), advice: buildAdvice(sessions) };
+}
+
+// Suggestions that save memory without unloading anything. Local (stdio) MCP
+// servers run once per session, so a server enabled for every project costs
+// its memory in every open session; and npx/uvx launchers stay resident next
+// to the server they started. Only sizeable cases are reported.
+function buildAdvice(sessions) {
+  const MB = 1048576;
+  const out = [];
+  const servers = new Map();
+  for (const s of sessions) {
+    for (const g of s.groups || []) {
+      if (g.kind !== 'mcp') continue;
+      const a = servers.get(g.label) || { type: 'mcp-in-many-sessions', label: g.label, sessions: 0, memBytes: 0 };
+      a.sessions += 1;
+      a.memBytes += g.memBytes;
+      servers.set(g.label, a);
+    }
+  }
+  out.push(...[...servers.values()].filter(a => a.sessions >= 3 && a.memBytes >= 200 * MB)
+    .sort((a, b) => b.memBytes - a.memBytes).slice(0, 2));
+  const launchers = sessions.reduce((t, s) => t + (s.launcherBytes || 0), 0);
+  if (launchers >= 150 * MB) {
+    out.push({ type: 'launchers', sessions: sessions.filter(s => s.launcherBytes > 0).length, memBytes: launchers });
+  }
+  return out;
+}
+
+function adviceText(a) {
+  const size = `${Math.round(a.memBytes / 1048576)} MB`;
+  return a.type === 'launchers'
+    ? `npx/uvx launchers hold ${size} across ${a.sessions} sessions. Install the MCP servers globally and run them directly to free it.`
+    : `${a.label} runs in ${a.sessions} sessions and holds ${size}. If you don't need it everywhere, enable it only in the projects that use it.`;
 }
 
 // A child process the user might not expect to lose, so confirmations call it
@@ -368,20 +401,42 @@ function isNotable(p, root, procs) {
   return true;
 }
 
-// The npm package a command line runs, such as "@playwright/mcp". Windows
-// paths use backslashes (node_modules\@scope\name), so both separators count.
+// Names a command line could be known by, most specific first: scoped npm
+// packages ("@playwright/mcp"), packages under node_modules, and executables
+// or scripts whose own name contains "mcp". Windows paths use backslashes, so
+// both separators count. A scope must start with a letter and not follow a
+// word character, which rules out pnpm's "vite@5.4.0\node_modules" and
+// addresses like "git@github.com/owner". Directory names are never taken.
+const NOT_A_PACKAGE = /^(node_modules|npm|npx|pnpm|yarn|corepack)$/i;
+function nameCandidates(cmd) {
+  if (!cmd) return [];
+  const out = [];
+  for (const m of cmd.matchAll(/(?<![\w.])@[a-z][\w.-]*[\\/]([a-z][\w.-]*)/gi)) {
+    if (!NOT_A_PACKAGE.test(m[1])) out.push(m[0].replace('\\', '/'));
+  }
+  for (const m of cmd.matchAll(/node_modules[\\/]([a-z][\w.-]*)/gi)) {
+    if (!NOT_A_PACKAGE.test(m[1])) out.push(m[1]);
+  }
+  for (const token of cmd.split(/[\s"']+/)) {
+    const base = token.split(/[\\/]/).pop().replace(/\.(exe|js|cjs|mjs|cmd|py)$/i, '');
+    if (/mcp/i.test(base) && /^[\w.-]+$/.test(base)) out.push(base);
+  }
+  return out;
+}
+
 function packageName(cmd) {
-  const m = cmd && cmd.match(/@[\w.-]+[\\/][\w.-]+/);
-  return m ? m[0].replace('\\', '/') : null;
+  return nameCandidates(cmd)[0] ?? null;
 }
 
 function shortCmd(cmd) {
   if (!cmd) return '';
   // Prefer a recognisable package or tool name (MCP servers, dev servers).
-  const pkg = packageName(cmd);
-  if (pkg) return pkg;
-  const m = cmd.match(/([\w.-]*mcp[\w.-]*|\b(?:vite|next|webpack|nodemon|tsx|playwright|chrome|msedge)\b)/i);
-  if (m) return m[1].replace(/\.(exe|js|cjs|mjs)$/i, '');
+  const names = nameCandidates(cmd);
+  const known = names.find(n => MCP_RE.test(n)) || names.find(n => n.startsWith('@'));
+  if (known) return known;
+  const m = cmd.match(/\b(?:vite|next|webpack|nodemon|tsx|playwright|chrome|msedge)\b/i);
+  if (m) return m[0];
+  if (names.length) return names[0];
   const args = cmd.replace(/^"[^"]+"|^\S+/, '').trim();
   return args.slice(0, 60);
 }
@@ -407,12 +462,14 @@ function groupChildren(root, kids) {
   }
   const groups = new Map();
   for (const { top, members } of raw.values()) {
-    const pkg = members.map(m => packageName(m.cmd)).find(Boolean);
-    const mcp = members.map(m => m.cmd.match(/[\w.-]*mcp[\w.-]*/i)?.[0]).find(Boolean);
+    // An MCP server is recognised by a package or executable name, never by a
+    // folder it happens to run in; a dev tool comes next, then any package.
+    const names = members.flatMap(m => nameCandidates(m.cmd));
+    const mcp = names.find(n => n.startsWith('@') && MCP_RE.test(n)) || names.find(n => MCP_RE.test(n));
     const dev = members.map(m => m.cmd.match(DEV_RE)?.[0]).find(Boolean);
     const topName = top.name.replace(/\.exe$/i, '');
-    const label = pkg || (mcp && mcp.replace(/\.(exe|js|cjs|mjs)$/i, '')) || dev || topName;
-    const kind = pkg || mcp ? (MCP_RE.test(label) || MCP_RE.test(members.map(m => m.cmd).join(' ')) ? 'mcp' : 'other')
+    const label = mcp || dev || names.find(n => n.startsWith('@')) || topName;
+    const kind = mcp ? 'mcp'
       : dev ? 'dev'
       : /^conhost$/i.test(topName) ? 'system'
       : /^(cmd|powershell|pwsh|bash|sh|zsh|fish)$/i.test(topName) ? 'shell' : 'other';
@@ -452,6 +509,10 @@ function printList(data) {
   const total = sessions.reduce((t, s) => t + s.memBytes, 0);
   console.log(`\nTotal: ${mb(total)} in ${sessions.reduce((t, s) => t + s.processCount, 0)} processes across ${sessions.length} sessions (${data.memMetric}).`);
   if (app) console.log(`Claude desktop app itself: ${mb(app.memBytes)} in ${app.processCount} processes (never touched).`);
+  if (data.advice?.length) {
+    console.log('\nTips:');
+    for (const a of data.advice) console.log(`  - ${adviceText(a)}`);
+  }
 }
 
 // ---------------------------------------------------------------- unload
@@ -776,6 +837,7 @@ function xbarOutput(data) {
       ? `--${L.interrupt} | ${run('confirm-unload', String(s.pid), '--force')}`
       : `--${L.unload} | ${run('confirm-unload', String(s.pid))}`);
   }
+  for (const a of data.advice || []) lines.push('---', `${clean(adviceText(a))} | disabled=true`);
   lines.push('---');
   if (app) lines.push(`${L.app}: ${size(app.memBytes)} | disabled=true`);
   lines.push(`${L.dashboard} | ${run('serve').replace(' refresh=true', '')}`);

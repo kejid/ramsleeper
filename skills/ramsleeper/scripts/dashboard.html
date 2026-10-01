@@ -44,6 +44,11 @@
   .pnum { color: var(--muted); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .hint { margin: 10px 0 0; font-size: 13px; color: var(--warn); }
   @media (max-width: 720px) { .part { grid-template-columns: minmax(0, 1fr) auto; } .pbar { display: none; } }
+  .tips { margin-top: 14px; padding: 14px 18px; }
+  .tips h2 { font-size: 15px; margin: 0 0 6px; }
+  .tips ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 14px; }
+  .tips li { margin: 6px 0; }
+  .tips b { color: var(--text); }
   .you { display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: 99px; font-size: 11px; font-weight: 600; background: var(--accent-soft); color: var(--accent); }
   .ram { min-width: 150px; }
   .bar { height: 6px; background: var(--bar); border-radius: 3px; margin-top: 5px; overflow: hidden; }
@@ -125,6 +130,7 @@
   <div id="view-sessions">
     <section class="stats" id="stats"></section>
     <section class="card" id="list"><div class="empty" data-i18n="loading"></div></section>
+    <section class="card tips" id="tips" hidden></section>
     <p class="foot" id="metric"></p>
   </div>
   <div id="view-setup" hidden>
@@ -190,6 +196,9 @@ Object.assign(T, RU ? {
   trayOff: 'Не запущен. Клик по значку открывает список сессий с кнопками выгрузки.', trayStart: 'Запустить',
   autoTitle: 'Запуск при входе в Windows', autoOn: 'Включён: значок появится сам после перезагрузки.', autoOff: 'Выключен.',
   autoEnable: 'Включить', autoDisable: 'Выключить',
+  tipsTitle: 'Как сэкономить память, ничего не выгружая',
+  adviceMcp: (label, n, m) => `<b>${esc(label)}</b> запущен в ${n} сессиях и занимает ${m}. Локальный MCP-сервер стартует отдельно в каждой сессии. Если он нужен не во всех проектах, подключите его в настройках нужных проектов, а не для всех сразу.`,
+  adviceLaunchers: (n, m) => `Запускалки <b>npx/uvx</b> держат ${m} в ${n} сессиях: они остаются в памяти рядом с сервером, который запустили. Установите MCP-серверы глобально (<code>npm i -g пакет</code>) и укажите в настройках прямой запуск вместо <code>npx -y пакет</code>.`,
   inside: 'Показать, из чего состоит', self: 'claude — сама сессия', procShort: 'проц.',
   kinds: { mcp: 'MCP-сервер', dev: 'dev-сервер или база', shell: 'оболочка', system: 'служебное' },
   launcherHint: m => `${m} в этой сессии держат запускалки npx/uvx: они остаются в памяти рядом с MCP-серверами. Если установить серверы глобально и запускать напрямую, эта память освободится.`,
@@ -222,6 +231,9 @@ Object.assign(T, RU ? {
   trayOff: 'Not running. Clicking the icon opens the session list with Unload buttons.', trayStart: 'Start',
   autoTitle: 'Start at Windows sign-in', autoOn: 'On: the icon comes back by itself after a restart.', autoOff: 'Off.',
   autoEnable: 'Turn on', autoDisable: 'Turn off',
+  tipsTitle: 'Save memory without unloading anything',
+  adviceMcp: (label, n, m) => `<b>${esc(label)}</b> runs in ${n} sessions and holds ${m}. A local MCP server starts separately in every session. If you don't need it in every project, enable it in the settings of the projects that use it instead of for all of them.`,
+  adviceLaunchers: (n, m) => `<b>npx/uvx</b> launchers hold ${m} across ${n} sessions: they stay in memory next to the server they started. Install the MCP servers globally (<code>npm i -g package</code>) and point the settings at the installed command instead of <code>npx -y package</code>.`,
   inside: 'Show what it is made of', self: 'claude, the session itself', procShort: 'proc.',
   kinds: { mcp: 'MCP server', dev: 'dev server or database', shell: 'shell', system: 'system' },
   launcherHint: m => `${m} in this session is held by npx/uvx launchers, which stay in memory next to the MCP servers they started. Installing those servers globally and running them directly frees it.`,
@@ -302,7 +314,7 @@ function render() {
     ...(app ? [[mb(app.memBytes), T.app]] : []),
   ].map(([b, s]) => `<div class="stat"><b>${esc(b)}</b><span>${esc(s)}</span></div>`).join('');
   $('metric').textContent = T.metric(memMetric);
-  if (!sessions.length) { $('list').innerHTML = `<div class="empty">${T.none}</div>`; return; }
+  if (!sessions.length) { $('list').innerHTML = `<div class="empty">${T.none}</div>`; renderTips(); return; }
   const max = Math.max(...sessions.map(s => s.memBytes));
   $('list').innerHTML = `<table>
     <thead><tr><th>${T.session}</th><th>${T.ram}</th><th class="hide-sm">${T.procs}</th><th>${T.status}</th><th class="hide-sm">${T.last}</th><th></th></tr></thead>
@@ -318,7 +330,17 @@ function render() {
         <td><button data-pid="${s.pid}" ${why ? `disabled title="${esc(why)}"` : ''}>${s.status === 'busy' ? T.interruptBtn : T.unload}</button></td>
       </tr>${isOpen ? detailRow(s) : ''}`;
     }).join('')}</tbody></table>`;
+  renderTips();
   tick();
+}
+
+// Ways to save memory without unloading anything, worked out by the script.
+function renderTips() {
+  const tips = (data.advice || []).map(a =>
+    a.type === 'mcp-in-many-sessions' ? T.adviceMcp(a.label, a.sessions, mb(a.memBytes))
+    : a.type === 'launchers' ? T.adviceLaunchers(a.sessions, mb(a.memBytes)) : null).filter(Boolean);
+  $('tips').hidden = !tips.length;
+  $('tips').innerHTML = tips.length ? `<h2>${T.tipsTitle}</h2><ul>${tips.map(t => `<li>${t}</li>`).join('')}</ul>` : '';
 }
 
 // What a session's memory is made of: the session process itself, then each

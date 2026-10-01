@@ -40,6 +40,15 @@ Click a session in the dashboard or the tray to see where its memory goes: the `
 
 ![Dashboard with one session expanded into the claude process, two MCP servers, and a Vite dev server, with a note about npx launchers](docs/images/breakdown-dark.png)
 
+### Tips that save memory without unloading
+
+Under the list, RAM Sleeper points out two common sources of waste:
+
+- **An MCP server that runs in many sessions.** A local (stdio) MCP server starts separately in every session, so a server enabled for all projects costs its memory once per open session. If you need it in only some projects, enable it in those projects' settings.
+- **`npx` and `uvx` launchers.** `npx -y package` leaves the launcher running next to the server it started. Installing the server globally (`npm i -g package`) and pointing the MCP settings at the installed command removes that copy.
+
+One server can also be shared by all sessions if it supports HTTP transport and you run it once as a local HTTP server. RAM Sleeper does not suggest this by itself: not every server supports it, and a shared server shares its state. For a browser server such as Playwright, that means the sessions would use the same browser.
+
 ### The confirmation
 
 Every unload is confirmed first. The confirmation lists every process that will stop. It highlights anything that isn't an MCP server or a shell, such as a dev server, because that stops too:
